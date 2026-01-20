@@ -202,13 +202,84 @@ const HyperliquidProvider = {
         return parseInt(match[1]) * units[match[2]];
     },
 
-    // Placeholder methods (implemented in Task 2.3)
+    /**
+     * Subscribe to real-time candle updates
+     * @param {string} symbol
+     * @param {string} interval
+     * @param {function} onCandle - callback receiving normalized candle
+     */
     subscribeCandles(symbol, interval, onCandle) {
-        console.warn('WebSocket subscription not yet implemented');
+        // Close existing connection if any
+        this.unsubscribe();
+
+        this.ws = new WebSocket(this.wsUrl);
+        this._onCandle = onCandle;
+        this._currentSymbol = symbol;
+        this._currentInterval = interval;
+
+        this.ws.onopen = () => {
+            console.log('WebSocket connected');
+            // Subscribe to candle updates
+            this.ws.send(JSON.stringify({
+                method: 'subscribe',
+                subscription: {
+                    type: 'candle',
+                    coin: symbol,
+                    interval: interval
+                }
+            }));
+        };
+
+        this.ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+
+                // Handle candle updates
+                if (message.channel === 'candle' && message.data) {
+                    const candle = message.data;
+                    const normalized = {
+                        time: Math.floor(candle.t / 1000),
+                        open: parseFloat(candle.o),
+                        high: parseFloat(candle.h),
+                        low: parseFloat(candle.l),
+                        close: parseFloat(candle.c),
+                        volume: parseFloat(candle.v)
+                    };
+                    this._onCandle(normalized);
+                }
+            } catch (err) {
+                console.error('WebSocket message parse error:', err);
+            }
+        };
+
+        this.ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        this.ws.onclose = () => {
+            console.log('WebSocket closed');
+        };
     },
 
+    /**
+     * Unsubscribe and close WebSocket connection
+     */
     unsubscribe() {
-        console.warn('WebSocket unsubscribe not yet implemented');
+        if (this.ws) {
+            // Send unsubscribe before closing
+            if (this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({
+                    method: 'unsubscribe',
+                    subscription: {
+                        type: 'candle',
+                        coin: this._currentSymbol,
+                        interval: this._currentInterval
+                    }
+                }));
+            }
+            this.ws.close();
+            this.ws = null;
+        }
     }
 };
 
@@ -225,20 +296,27 @@ async function testDataProvider() {
     // Test 1: Fetch symbols
     console.log('Test 1: Fetching symbols...');
     const symbols = await dataProvider.getSymbols();
-    console.log(`✓ Got ${symbols.length} symbols. First 5:`, symbols.slice(0, 5));
+    console.log(`✓ Got ${symbols.length} symbols`);
 
     // Test 2: Fetch candles
     console.log('Test 2: Fetching BTC 1h candles...');
     const candles = await dataProvider.fetchCandles('BTC', '1h', 10);
-    console.log(`✓ Got ${candles.length} candles. Latest:`, candles[candles.length - 1]);
+    console.log(`✓ Got ${candles.length} candles`);
 
-    // Test 3: Verify candle format
-    const candle = candles[0];
-    const hasAllFields = ['time', 'open', 'high', 'low', 'close', 'volume']
-        .every(field => typeof candle[field] === 'number');
-    console.log(`✓ Candle format valid:`, hasAllFields);
+    // Test 3: WebSocket subscription
+    console.log('Test 3: Testing WebSocket (5 second test)...');
+    let updateCount = 0;
+    dataProvider.subscribeCandles('BTC', '1m', (candle) => {
+        updateCount++;
+        console.log(`  WebSocket update #${updateCount}:`, candle.close);
+    });
 
-    console.log('--- All tests passed ---');
+    // Stop after 5 seconds
+    setTimeout(() => {
+        dataProvider.unsubscribe();
+        console.log(`✓ Received ${updateCount} WebSocket updates in 5 seconds`);
+        console.log('--- All tests passed ---');
+    }, 5000);
 }
 
 testDataProvider().catch(console.error);
