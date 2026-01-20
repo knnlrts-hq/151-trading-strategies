@@ -745,7 +745,29 @@ const UIController = {
         };
 
         text.textContent = labels[state] || state;
-    }
+    },
+
+    initTimeframeSelect() {
+        const select = document.getElementById('timeframe-select');
+
+        // Populate options
+        TIMEFRAMES.forEach(tf => {
+            const option = document.createElement('option');
+            option.value = tf;
+            option.textContent = tf;
+            if (tf === CONFIG.defaultTimeframe) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+
+        // Handle changes
+        select.addEventListener('change', (e) => {
+            const newTimeframe = e.target.value;
+            console.log('Timeframe changed to:', newTimeframe);
+            AppState.setTimeframe(newTimeframe);
+        });
+    },
 };
 
 // Listen to connection state changes
@@ -754,54 +776,72 @@ onConnectionStateChange((state) => {
 });
 
 // ============================================================
+// SECTION 6: APP STATE
+// ============================================================
+
+const AppState = {
+    symbol: CONFIG.defaultSymbol,
+    timeframe: CONFIG.defaultTimeframe,
+    strategies: [],
+    threshold: CONFIG.defaultThreshold,
+    candles: [],
+
+    async setTimeframe(tf) {
+        this.timeframe = tf;
+        await this.reload();
+    },
+
+    async setSymbol(sym) {
+        this.symbol = sym;
+        await this.reload();
+    },
+
+    async reload() {
+        console.log(`Reloading: ${this.symbol} ${this.timeframe}`);
+
+        // Unsubscribe from current feed
+        dataProvider.unsubscribe();
+
+        // Fetch new data
+        this.candles = await dataProvider.fetchCandles(
+            this.symbol,
+            this.timeframe,
+            CONFIG.candleLimit
+        );
+
+        ChartManager.setData(this.candles);
+
+        // Resubscribe
+        dataProvider.subscribeCandles(
+            this.symbol,
+            this.timeframe,
+            (newCandle) => {
+                const lastCandle = this.candles[this.candles.length - 1];
+                if (lastCandle && lastCandle.time === newCandle.time) {
+                    this.candles[this.candles.length - 1] = newCandle;
+                } else {
+                    this.candles.push(newCandle);
+                    if (this.candles.length > CONFIG.candleLimit) {
+                        this.candles.shift();
+                    }
+                }
+                ChartManager.updateCandle(newCandle);
+            }
+        );
+    }
+};
+
+// ============================================================
 // APP INITIALIZATION
 // ============================================================
 
 async function initApp() {
     console.log('Initializing app...');
 
-    // Initialize chart
     ChartManager.init();
+    UIController.initTimeframeSelect();
 
-    // Track candles in memory
-    let candles = [];
-
-    // Load initial data
-    try {
-        candles = await dataProvider.fetchCandles(
-            CONFIG.defaultSymbol,
-            CONFIG.defaultTimeframe,
-            CONFIG.candleLimit
-        );
-        console.log(`Loaded ${candles.length} candles`);
-        ChartManager.setData(candles);
-
-        // Subscribe to real-time updates
-        dataProvider.subscribeCandles(
-            CONFIG.defaultSymbol,
-            CONFIG.defaultTimeframe,
-            (newCandle) => {
-                // Check if this updates the last candle or adds a new one
-                const lastCandle = candles[candles.length - 1];
-
-                if (lastCandle && lastCandle.time === newCandle.time) {
-                    // Update existing candle
-                    candles[candles.length - 1] = newCandle;
-                } else {
-                    // New candle - append and trim
-                    candles.push(newCandle);
-                    if (candles.length > CONFIG.candleLimit) {
-                        candles.shift();
-                    }
-                }
-
-                ChartManager.updateCandle(newCandle);
-            }
-        );
-
-    } catch (error) {
-        console.error('Failed to initialize:', error);
-    }
+    await AppState.reload();
 }
 
 // Start the app when DOM is ready
