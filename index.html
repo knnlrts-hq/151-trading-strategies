@@ -630,6 +630,132 @@ const HyperliquidProvider = {
 
 // Set as the active provider
 dataProvider = HyperliquidProvider;
+
+// ============================================================
+// SECTION 4: CHART MANAGER
+// ============================================================
+
+const ChartManager = {
+    chart: null,
+    candleSeries: null,
+    container: null,
+
+    /**
+     * Initialize the chart
+     */
+    init() {
+        this.container = document.getElementById('chart-container');
+
+        this.chart = LightweightCharts.createChart(this.container, {
+            layout: {
+                background: { type: 'solid', color: '#0f0f1a' },
+                textColor: '#a0a0a0',
+            },
+            grid: {
+                vertLines: { color: '#1a1a2e' },
+                horzLines: { color: '#1a1a2e' },
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+            },
+            rightPriceScale: {
+                borderColor: '#2a2a4a',
+            },
+            timeScale: {
+                borderColor: '#2a2a4a',
+                timeVisible: true,
+                secondsVisible: false,
+            },
+        });
+
+        this.candleSeries = this.chart.addCandlestickSeries({
+            upColor: '#00c853',
+            downColor: '#ff5252',
+            borderUpColor: '#00c853',
+            borderDownColor: '#ff5252',
+            wickUpColor: '#00c853',
+            wickDownColor: '#ff5252',
+        });
+
+        // Handle resize
+        window.addEventListener('resize', () => this.resize());
+        this.resize();
+    },
+
+    /**
+     * Resize chart to fit container
+     */
+    resize() {
+        if (this.chart && this.container) {
+            this.chart.applyOptions({
+                width: this.container.clientWidth,
+                height: this.container.clientHeight,
+            });
+        }
+    },
+
+    /**
+     * Set candle data
+     * @param {Candle[]} candles
+     */
+    setData(candles) {
+        if (this.candleSeries) {
+            this.candleSeries.setData(candles);
+            this.chart.timeScale().fitContent();
+        }
+    },
+
+    /**
+     * Update the latest candle
+     * @param {Candle} candle
+     */
+    updateCandle(candle) {
+        if (this.candleSeries) {
+            this.candleSeries.update(candle);
+        }
+    },
+
+    /**
+     * Add markers to the chart
+     * @param {Marker[]} markers
+     */
+    setMarkers(markers) {
+        if (this.candleSeries) {
+            this.candleSeries.setMarkers(markers);
+        }
+    }
+};
+
+// ============================================================
+// APP INITIALIZATION
+// ============================================================
+
+async function initApp() {
+    console.log('Initializing app...');
+
+    // Initialize chart
+    ChartManager.init();
+    console.log('Chart initialized');
+
+    // Load initial data
+    try {
+        const candles = await dataProvider.fetchCandles(
+            CONFIG.defaultSymbol,
+            CONFIG.defaultTimeframe,
+            CONFIG.candleLimit
+        );
+        console.log(`Loaded ${candles.length} candles`);
+
+        ChartManager.setData(candles);
+        console.log('Chart data set');
+
+    } catch (error) {
+        console.error('Failed to initialize:', error);
+    }
+}
+
+// Start the app when DOM is ready
+document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
 </html>
