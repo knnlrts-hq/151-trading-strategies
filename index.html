@@ -285,6 +285,40 @@
         .toast.error { border-color: var(--accent-red); }
         .toast.warning { border-color: var(--accent-yellow); }
 
+        /* ========== Choices.js Overrides ========== */
+        .choices {
+            margin-bottom: 0;
+        }
+
+        .choices__inner {
+            background: var(--bg-tertiary);
+            border-color: var(--border-color);
+            min-height: 38px;
+            padding: 4px 8px;
+        }
+
+        .choices__list--single {
+            padding: 4px 16px 4px 4px;
+        }
+
+        .choices__list--dropdown {
+            background: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+
+        .choices__list--dropdown .choices__item--selectable.is-highlighted {
+            background: var(--bg-tertiary);
+        }
+
+        .choices__input {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .choices[data-type*="select-one"] .choices__input {
+            background: var(--bg-secondary);
+        }
+
         @keyframes slideIn {
             from {
                 transform: translateX(100%);
@@ -731,6 +765,42 @@ const ChartManager = {
 // ============================================================
 
 const UIController = {
+    symbolChoices: null,
+
+    async initSymbolSelect() {
+        const select = document.getElementById('symbol-select');
+
+        // Fetch available symbols
+        const symbols = await dataProvider.getSymbols();
+
+        // Clear and populate
+        select.innerHTML = '';
+        symbols.forEach(sym => {
+            const option = document.createElement('option');
+            option.value = sym.symbol;
+            option.textContent = sym.symbol;
+            if (sym.symbol === CONFIG.defaultSymbol) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+
+        // Initialize Choices.js
+        this.symbolChoices = new Choices(select, {
+            searchEnabled: true,
+            searchPlaceholderValue: 'Search symbols...',
+            itemSelectText: '',
+            shouldSort: false,
+        });
+
+        // Handle changes
+        select.addEventListener('change', (e) => {
+            const newSymbol = e.target.value;
+            console.log('Symbol changed to:', newSymbol);
+            AppState.setSymbol(newSymbol);
+        });
+    },
+
     updateStatus(state) {
         const dot = document.querySelector('.status-dot');
         const text = document.querySelector('.status-text');
@@ -840,6 +910,7 @@ async function initApp() {
 
     ChartManager.init();
     UIController.initTimeframeSelect();
+    await UIController.initSymbolSelect();
 
     await AppState.reload();
 }
