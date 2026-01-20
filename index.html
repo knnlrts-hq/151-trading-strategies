@@ -727,6 +727,33 @@ const ChartManager = {
 };
 
 // ============================================================
+// SECTION 5: UI CONTROLLER
+// ============================================================
+
+const UIController = {
+    updateStatus(state) {
+        const dot = document.querySelector('.status-dot');
+        const text = document.querySelector('.status-text');
+
+        dot.className = 'status-dot ' + state;
+
+        const labels = {
+            connecting: 'Connecting...',
+            connected: 'Live',
+            reconnecting: 'Reconnecting...',
+            disconnected: 'Disconnected'
+        };
+
+        text.textContent = labels[state] || state;
+    }
+};
+
+// Listen to connection state changes
+onConnectionStateChange((state) => {
+    UIController.updateStatus(state);
+});
+
+// ============================================================
 // APP INITIALIZATION
 // ============================================================
 
@@ -735,19 +762,42 @@ async function initApp() {
 
     // Initialize chart
     ChartManager.init();
-    console.log('Chart initialized');
+
+    // Track candles in memory
+    let candles = [];
 
     // Load initial data
     try {
-        const candles = await dataProvider.fetchCandles(
+        candles = await dataProvider.fetchCandles(
             CONFIG.defaultSymbol,
             CONFIG.defaultTimeframe,
             CONFIG.candleLimit
         );
         console.log(`Loaded ${candles.length} candles`);
-
         ChartManager.setData(candles);
-        console.log('Chart data set');
+
+        // Subscribe to real-time updates
+        dataProvider.subscribeCandles(
+            CONFIG.defaultSymbol,
+            CONFIG.defaultTimeframe,
+            (newCandle) => {
+                // Check if this updates the last candle or adds a new one
+                const lastCandle = candles[candles.length - 1];
+
+                if (lastCandle && lastCandle.time === newCandle.time) {
+                    // Update existing candle
+                    candles[candles.length - 1] = newCandle;
+                } else {
+                    // New candle - append and trim
+                    candles.push(newCandle);
+                    if (candles.length > CONFIG.candleLimit) {
+                        candles.shift();
+                    }
+                }
+
+                ChartManager.updateCandle(newCandle);
+            }
+        );
 
     } catch (error) {
         console.error('Failed to initialize:', error);
