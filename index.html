@@ -60,8 +60,72 @@
     </style>
 </head>
 <body>
-    <h1 style="padding: 20px;">151 Trading Strategies</h1>
-    <p style="padding: 0 20px;" class="text-muted">Dark theme active</p>
+    <!-- Row 1: Symbol, Timeframe, Status -->
+    <div id="row1" class="control-row">
+        <div class="control-group">
+            <select id="symbol-select">
+                <option value="BTC">BTC</option>
+            </select>
+            <select id="timeframe-select">
+                <!-- Populated by JS -->
+            </select>
+        </div>
+        <div class="status-indicator" id="status-indicator">
+            <span class="status-dot"></span>
+            <span class="status-text">Connecting...</span>
+        </div>
+    </div>
+
+    <!-- Row 2: Strategies, Threshold, Confluence -->
+    <div id="row2" class="control-row">
+        <div class="strategy-slots" id="strategy-slots">
+            <div class="strategy-slot" id="strategy-slot-1">
+                <select class="strategy-select" data-slot="1">
+                    <option value="">+ Add Strategy</option>
+                </select>
+                <button class="settings-btn" data-slot="1" style="display:none;">⚙</button>
+            </div>
+            <!-- More slots added dynamically -->
+        </div>
+        <div class="confluence-controls">
+            <label>
+                Threshold:
+                <input type="range" id="threshold-slider" min="1" max="5" value="3">
+                <span id="threshold-value">3</span>
+            </label>
+            <div class="confluence-badge" id="confluence-badge">
+                <span>No strategies</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Panel (hidden by default) -->
+    <div id="settings-panel" class="settings-panel" style="display:none;">
+        <div class="settings-header">
+            <span id="settings-title">Strategy Settings</span>
+            <button id="settings-close">×</button>
+        </div>
+        <div id="settings-content">
+            <!-- Populated dynamically -->
+        </div>
+    </div>
+
+    <!-- Chart Container -->
+    <div id="chart-container"></div>
+
+    <!-- Signal Log (collapsed) -->
+    <div id="signal-log" class="signal-log collapsed">
+        <div class="signal-log-header" id="signal-log-toggle">
+            <span>▶ Signals (<span id="signal-count">0</span>)</span>
+            <button id="export-csv-btn">Export CSV</button>
+        </div>
+        <div class="signal-log-content" id="signal-log-content">
+            <!-- Populated dynamically -->
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
 
     <script>
 // ============================================================
