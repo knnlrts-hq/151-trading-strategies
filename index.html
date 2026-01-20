@@ -77,6 +77,30 @@ const CONFIG = {
     retryDelays: [1000, 2000, 4000, 8000],
 };
 
+// ============================================================
+// SECTION 1.5: CONNECTION STATE
+// ============================================================
+
+const ConnectionState = {
+    CONNECTING: 'connecting',
+    CONNECTED: 'connected',
+    RECONNECTING: 'reconnecting',
+    DISCONNECTED: 'disconnected'
+};
+
+let connectionState = ConnectionState.DISCONNECTED;
+let connectionStateListeners = [];
+
+function setConnectionState(state) {
+    connectionState = state;
+    connectionStateListeners.forEach(fn => fn(state));
+    console.log('Connection state:', state);
+}
+
+function onConnectionStateChange(listener) {
+    connectionStateListeners.push(listener);
+}
+
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '8h', '12h', '1d', '3d', '1w', '1M'];
 
 // ============================================================
@@ -209,17 +233,20 @@ const HyperliquidProvider = {
      * @param {function} onCandle - callback receiving normalized candle
      */
     subscribeCandles(symbol, interval, onCandle) {
-        // Close existing connection if any
         this.unsubscribe();
+        setConnectionState(ConnectionState.CONNECTING);
 
         this.ws = new WebSocket(this.wsUrl);
         this._onCandle = onCandle;
         this._currentSymbol = symbol;
         this._currentInterval = interval;
+        this._reconnectAttempt = 0;
 
         this.ws.onopen = () => {
             console.log('WebSocket connected');
-            // Subscribe to candle updates
+            setConnectionState(ConnectionState.CONNECTED);
+            this._reconnectAttempt = 0;
+
             this.ws.send(JSON.stringify({
                 method: 'subscribe',
                 subscription: {
@@ -233,8 +260,6 @@ const HyperliquidProvider = {
         this.ws.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
-
-                // Handle candle updates
                 if (message.channel === 'candle' && message.data) {
                     const candle = message.data;
                     const normalized = {
@@ -258,7 +283,25 @@ const HyperliquidProvider = {
 
         this.ws.onclose = () => {
             console.log('WebSocket closed');
+            this._handleReconnect(symbol, interval, onCandle);
         };
+    },
+
+    _handleReconnect(symbol, interval, onCandle) {
+        if (this._reconnectAttempt >= CONFIG.retryDelays.length) {
+            setConnectionState(ConnectionState.DISCONNECTED);
+            console.error('Max reconnection attempts reached');
+            return;
+        }
+
+        setConnectionState(ConnectionState.RECONNECTING);
+        const delay = CONFIG.retryDelays[this._reconnectAttempt];
+        console.log(`Reconnecting in ${delay}ms... (attempt ${this._reconnectAttempt + 1})`);
+
+        setTimeout(() => {
+            this._reconnectAttempt++;
+            this.subscribeCandles(symbol, interval, onCandle);
+        }, delay);
     },
 
     /**
@@ -285,41 +328,6 @@ const HyperliquidProvider = {
 
 // Set as the active provider
 dataProvider = HyperliquidProvider;
-
-// ============================================================
-// TEMPORARY TEST CODE (remove after verification)
-// ============================================================
-
-async function testDataProvider() {
-    console.log('--- Testing DataProvider ---');
-
-    // Test 1: Fetch symbols
-    console.log('Test 1: Fetching symbols...');
-    const symbols = await dataProvider.getSymbols();
-    console.log(`✓ Got ${symbols.length} symbols`);
-
-    // Test 2: Fetch candles
-    console.log('Test 2: Fetching BTC 1h candles...');
-    const candles = await dataProvider.fetchCandles('BTC', '1h', 10);
-    console.log(`✓ Got ${candles.length} candles`);
-
-    // Test 3: WebSocket subscription
-    console.log('Test 3: Testing WebSocket (5 second test)...');
-    let updateCount = 0;
-    dataProvider.subscribeCandles('BTC', '1m', (candle) => {
-        updateCount++;
-        console.log(`  WebSocket update #${updateCount}:`, candle.close);
-    });
-
-    // Stop after 5 seconds
-    setTimeout(() => {
-        dataProvider.unsubscribe();
-        console.log(`✓ Received ${updateCount} WebSocket updates in 5 seconds`);
-        console.log('--- All tests passed ---');
-    }, 5000);
-}
-
-testDataProvider().catch(console.error);
     </script>
 </body>
 </html>
