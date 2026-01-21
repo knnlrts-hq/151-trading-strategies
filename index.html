@@ -931,6 +931,66 @@ const UIController = {
     clearSignalLog() {
         document.getElementById('signal-log-content').innerHTML = '';
         document.getElementById('signal-count').textContent = '0';
+    },
+
+    strategyChoices: {},
+
+    initStrategySelectors() {
+        const grouped = getStrategiesByCategory();
+        const slot = document.querySelector('.strategy-select[data-slot="1"]');
+
+        // Build choices format
+        const choices = [{ value: '', label: '+ Add Strategy', selected: true }];
+
+        for (const [category, strategies] of Object.entries(grouped)) {
+            choices.push({
+                label: category,
+                id: category,
+                disabled: false,
+                choices: strategies.map(s => ({
+                    value: s.id,
+                    label: s.warning ? `${s.name} ⚠️` : s.name,
+                    customProperties: { warning: s.warning }
+                }))
+            });
+        }
+
+        // Initialize first slot with Choices.js
+        this.strategyChoices[1] = new Choices(slot, {
+            searchEnabled: true,
+            searchPlaceholderValue: 'Search strategies...',
+            itemSelectText: '',
+            choices: choices,
+            shouldSort: false,
+        });
+
+        slot.addEventListener('change', (e) => {
+            const strategyId = e.target.value;
+            if (strategyId) {
+                this.onStrategySelected(1, strategyId);
+            }
+        });
+    },
+
+    onStrategySelected(slot, strategyId) {
+        const strategy = getStrategyById(strategyId);
+        if (!strategy) return;
+
+        console.log(`Slot ${slot}: Selected ${strategy.name}`);
+
+        // Show warning toast if adapted strategy
+        if (strategy.warning) {
+            ToastManager.warning(strategy.warning, 5000);
+        }
+
+        // Show settings button
+        const settingsBtn = document.querySelector(`.settings-btn[data-slot="${slot}"]`);
+        if (settingsBtn) {
+            settingsBtn.style.display = 'inline-block';
+        }
+
+        // Add to AppState
+        AppState.addStrategy(slot, strategyId, {});
     }
 };
 
@@ -1012,13 +1072,71 @@ const AppState = {
     setThreshold(value) {
         this.threshold = value;
         console.log('Threshold set to:', value);
-        // Recalculate confluence (implemented later)
+        this.recalculateSignals();
+    },
+
+    activeStrategies: {}, // { slot: { id, params, signals } }
+
+    addStrategy(slot, strategyId, params) {
+        const strategy = getStrategyById(strategyId);
+        if (!strategy) return;
+
+        // Merge with defaults
+        const finalParams = {};
+        for (const [key, config] of Object.entries(strategy.params)) {
+            finalParams[key] = params[key] !== undefined ? params[key] : config.default;
+        }
+
+        this.activeStrategies[slot] = {
+            id: strategyId,
+            params: finalParams,
+            signals: []
+        };
+
+        this.recalculateSignals();
+    },
+
+    removeStrategy(slot) {
+        delete this.activeStrategies[slot];
         this.recalculateSignals();
     },
 
     recalculateSignals() {
-        // Placeholder - will be implemented with strategies
-        console.log('Recalculating signals...');
+        console.log('Recalculating signals for', Object.keys(this.activeStrategies).length, 'strategies');
+
+        for (const [slot, config] of Object.entries(this.activeStrategies)) {
+            const strategy = getStrategyById(config.id);
+            if (strategy && this.candles.length > 0) {
+                config.signals = strategy.calculate(this.candles, config.params);
+                console.log(`Slot ${slot} (${strategy.name}): ${config.signals.length} signals`);
+            }
+        }
+
+        // Update chart markers
+        this.updateChartMarkers();
+    },
+
+    updateChartMarkers() {
+        const colors = ['#2962FF', '#FF6D00', '#00C853', '#AA00FF', '#FFD600'];
+        const allMarkers = [];
+
+        for (const [slot, config] of Object.entries(this.activeStrategies)) {
+            const color = colors[(parseInt(slot) - 1) % colors.length];
+
+            for (const signal of config.signals) {
+                allMarkers.push({
+                    time: signal.time,
+                    position: signal.type === 'buy' ? 'belowBar' : 'aboveBar',
+                    color: color,
+                    shape: signal.type === 'buy' ? 'arrowUp' : 'arrowDown',
+                    text: signal.type === 'buy' ? '▲' : '▼'
+                });
+            }
+        }
+
+        // Sort by time
+        allMarkers.sort((a, b) => a.time - b.time);
+        ChartManager.setMarkers(allMarkers);
     },
 
     async reload() {
@@ -1053,6 +1171,9 @@ const AppState = {
                 ChartManager.updateCandle(newCandle);
             }
         );
+
+        // Recalculate strategy signals with new data
+        this.recalculateSignals();
     }
 };
 
@@ -1434,6 +1555,7 @@ async function initApp() {
     UIController.initTimeframeSelect();
     UIController.initThresholdSlider();
     UIController.initSignalLog();
+    UIController.initStrategySelectors();
     await UIController.initSymbolSelect();
 
     await AppState.reload();
