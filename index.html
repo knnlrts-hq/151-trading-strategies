@@ -1057,6 +1057,68 @@ const AppState = {
 };
 
 // ============================================================
+// SECTION 8: STRATEGY REGISTRY
+// ============================================================
+
+const StrategyCategories = {
+    TREND: 'Trend Following',
+    REVERSION: 'Mean Reversion',
+    MOMENTUM: 'Momentum',
+    VOLATILITY: 'Volatility',
+    SUPPORT: 'Support/Resistance',
+    OPTIONS: 'Options-Adapted',
+    ML: 'Machine Learning',
+    MULTI: 'Multi-Factor'
+};
+
+// All strategies will be registered here
+const StrategyRegistry = [];
+
+/**
+ * Register a strategy
+ */
+function registerStrategy(strategy) {
+    // Validate required fields
+    const required = ['id', 'name', 'category', 'calculate'];
+    for (const field of required) {
+        if (!strategy[field]) {
+            throw new Error(`Strategy missing required field: ${field}`);
+        }
+    }
+
+    // Add defaults
+    strategy.params = strategy.params || {};
+    strategy.description = strategy.description || '';
+    strategy.warning = strategy.warning || null;
+    strategy.sourceSection = strategy.sourceSection || '';
+
+    StrategyRegistry.push(strategy);
+}
+
+/**
+ * Get strategies grouped by category
+ */
+function getStrategiesByCategory() {
+    const grouped = {};
+
+    for (const strategy of StrategyRegistry) {
+        if (!grouped[strategy.category]) {
+            grouped[strategy.category] = [];
+        }
+        grouped[strategy.category].push(strategy);
+    }
+
+    return grouped;
+}
+
+/**
+ * Get a strategy by ID
+ */
+function getStrategyById(id) {
+    return StrategyRegistry.find(s => s.id === id);
+}
+
+// ============================================================
 // APP INITIALIZATION
 // ============================================================
 
