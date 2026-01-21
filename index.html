@@ -203,6 +203,41 @@
             cursor: pointer;
         }
 
+        .settings-param {
+            margin-bottom: 12px;
+        }
+
+        .settings-param label {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .settings-param input {
+            padding: 6px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            width: 80px;
+        }
+
+        .apply-btn {
+            padding: 8px 16px;
+            background: var(--accent-blue);
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .apply-btn:hover {
+            opacity: 0.9;
+        }
+
         /* ========== Chart Container ========== */
         #chart-container {
             flex: 1;
@@ -987,10 +1022,86 @@ const UIController = {
         const settingsBtn = document.querySelector(`.settings-btn[data-slot="${slot}"]`);
         if (settingsBtn) {
             settingsBtn.style.display = 'inline-block';
+            settingsBtn.onclick = () => this.openSettingsPanel(slot);
         }
 
         // Add to AppState
         AppState.addStrategy(slot, strategyId, {});
+    },
+
+    currentSettingsSlot: null,
+
+    openSettingsPanel(slot) {
+        const config = AppState.activeStrategies[slot];
+        if (!config) return;
+
+        const strategy = getStrategyById(config.id);
+        if (!strategy) return;
+
+        this.currentSettingsSlot = slot;
+        const panel = document.getElementById('settings-panel');
+        const title = document.getElementById('settings-title');
+        const content = document.getElementById('settings-content');
+
+        title.textContent = `${strategy.name} Settings`;
+
+        // Build parameter inputs
+        let html = '';
+        for (const [key, paramConfig] of Object.entries(strategy.params)) {
+            const currentValue = config.params[key];
+            html += `
+                <div class="settings-param">
+                    <label>${paramConfig.label}:
+                        <input type="number"
+                               id="param-${key}"
+                               value="${currentValue}"
+                               min="${paramConfig.min}"
+                               max="${paramConfig.max}">
+                    </label>
+                </div>
+            `;
+        }
+        html += '<button id="apply-settings-btn" class="apply-btn">Apply</button>';
+        content.innerHTML = html;
+
+        // Apply button handler
+        document.getElementById('apply-settings-btn').onclick = () => this.applySettings();
+
+        panel.style.display = 'block';
+    },
+
+    closeSettingsPanel() {
+        document.getElementById('settings-panel').style.display = 'none';
+        this.currentSettingsSlot = null;
+    },
+
+    applySettings() {
+        if (!this.currentSettingsSlot) return;
+
+        const config = AppState.activeStrategies[this.currentSettingsSlot];
+        if (!config) return;
+
+        const strategy = getStrategyById(config.id);
+        if (!strategy) return;
+
+        // Collect new params
+        const newParams = {};
+        for (const key of Object.keys(strategy.params)) {
+            const input = document.getElementById(`param-${key}`);
+            if (input) {
+                newParams[key] = parseInt(input.value);
+            }
+        }
+
+        // Update and recalculate
+        config.params = { ...config.params, ...newParams };
+        AppState.recalculateSignals();
+        ToastManager.success('Settings applied');
+        this.closeSettingsPanel();
+    },
+
+    initSettingsPanel() {
+        document.getElementById('settings-close').onclick = () => this.closeSettingsPanel();
     }
 };
 
@@ -1556,6 +1667,7 @@ async function initApp() {
     UIController.initThresholdSlider();
     UIController.initSignalLog();
     UIController.initStrategySelectors();
+    UIController.initSettingsPanel();
     await UIController.initSymbolSelect();
 
     await AppState.reload();
