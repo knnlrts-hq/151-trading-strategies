@@ -285,6 +285,41 @@
         .toast.error { border-color: var(--accent-red); }
         .toast.warning { border-color: var(--accent-yellow); }
 
+        /* ========== Signal Log Entries ========== */
+        .signal-entry {
+            display: flex;
+            gap: 16px;
+            padding: 8px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 13px;
+        }
+
+        .signal-entry:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .signal-time {
+            color: var(--text-secondary);
+            min-width: 60px;
+        }
+
+        .signal-strategy {
+            flex: 1;
+        }
+
+        .signal-type {
+            min-width: 60px;
+            font-weight: 600;
+        }
+
+        .signal-type.buy { color: var(--accent-green); }
+        .signal-type.sell { color: var(--accent-red); }
+
+        .signal-price {
+            min-width: 100px;
+            text-align: right;
+        }
+
         /* ========== Choices.js Overrides ========== */
         .choices {
             margin-bottom: 0;
@@ -854,6 +889,49 @@ const UIController = {
             AppState.setThreshold(value);
         });
     },
+
+    initSignalLog() {
+        const log = document.getElementById('signal-log');
+        const toggle = document.getElementById('signal-log-toggle');
+
+        toggle.addEventListener('click', () => {
+            log.classList.toggle('collapsed');
+            log.classList.toggle('expanded');
+        });
+    },
+
+    addSignalToLog(signal) {
+        const content = document.getElementById('signal-log-content');
+        const countEl = document.getElementById('signal-count');
+
+        const entry = document.createElement('div');
+        entry.className = 'signal-entry';
+        entry.innerHTML = `
+            <span class="signal-time">${this.formatTime(signal.time)}</span>
+            <span class="signal-strategy">${signal.strategyName}</span>
+            <span class="signal-type ${signal.type}">${signal.type === 'buy' ? '▲' : '▼'} ${signal.type}</span>
+            <span class="signal-price">$${signal.price.toLocaleString()}</span>
+        `;
+
+        content.insertBefore(entry, content.firstChild);
+
+        // Update count
+        const count = content.children.length;
+        countEl.textContent = count;
+    },
+
+    formatTime(timestamp) {
+        const date = new Date(timestamp * 1000);
+        return date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    },
+
+    clearSignalLog() {
+        document.getElementById('signal-log-content').innerHTML = '';
+        document.getElementById('signal-count').textContent = '0';
+    }
 };
 
 // Listen to connection state changes
@@ -939,6 +1017,7 @@ async function initApp() {
     ChartManager.init();
     UIController.initTimeframeSelect();
     UIController.initThresholdSlider();
+    UIController.initSignalLog();
     await UIController.initSymbolSelect();
 
     await AppState.reload();
