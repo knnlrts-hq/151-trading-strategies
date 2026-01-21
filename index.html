@@ -1786,6 +1786,265 @@ registerStrategy({
     }
 });
 
+// --- Strategy: Three Moving Averages (Section 3.13) ---
+
+registerStrategy({
+    id: 'three-ma',
+    name: 'Three Moving Averages',
+    category: StrategyCategories.TREND,
+    sourceSection: '3.13',
+    description: 'Buy when MA(fast) > MA(medium) > MA(slow), sell when opposite alignment.',
+
+    params: {
+        fastPeriod: { default: 3, min: 2, max: 50, label: 'Fast Period' },
+        mediumPeriod: { default: 10, min: 3, max: 100, label: 'Medium Period' },
+        slowPeriod: { default: 21, min: 5, max: 200, label: 'Slow Period' }
+    },
+
+    calculate(candles, params) {
+        const fastPeriod = params.fastPeriod || this.params.fastPeriod.default;
+        const mediumPeriod = params.mediumPeriod || this.params.mediumPeriod.default;
+        const slowPeriod = params.slowPeriod || this.params.slowPeriod.default;
+
+        const fastMA = calculateSMA(candles, fastPeriod);
+        const mediumMA = calculateSMA(candles, mediumPeriod);
+        const slowMA = calculateSMA(candles, slowPeriod);
+        const signals = [];
+
+        for (let i = 1; i < candles.length; i++) {
+            if (fastMA[i] === null || mediumMA[i] === null || slowMA[i] === null ||
+                fastMA[i - 1] === null || mediumMA[i - 1] === null || slowMA[i - 1] === null) continue;
+
+            const bullishNow = fastMA[i] > mediumMA[i] && mediumMA[i] > slowMA[i];
+            const bullishPrev = fastMA[i - 1] > mediumMA[i - 1] && mediumMA[i - 1] > slowMA[i - 1];
+            const bearishNow = fastMA[i] < mediumMA[i] && mediumMA[i] < slowMA[i];
+            const bearishPrev = fastMA[i - 1] < mediumMA[i - 1] && mediumMA[i - 1] < slowMA[i - 1];
+
+            // Entered bullish alignment
+            if (bullishNow && !bullishPrev) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `MAs aligned bullish: MA(${fastPeriod}) > MA(${mediumPeriod}) > MA(${slowPeriod})`
+                });
+            }
+            // Entered bearish alignment
+            else if (bearishNow && !bearishPrev) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `MAs aligned bearish: MA(${fastPeriod}) < MA(${mediumPeriod}) < MA(${slowPeriod})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: EMA Cross ---
+
+registerStrategy({
+    id: 'ema-cross',
+    name: 'EMA Cross',
+    category: StrategyCategories.TREND,
+    sourceSection: '3.12',
+    description: 'Buy when fast EMA crosses above slow EMA, sell when below.',
+
+    params: {
+        fastPeriod: { default: 12, min: 2, max: 100, label: 'Fast EMA Period' },
+        slowPeriod: { default: 26, min: 5, max: 200, label: 'Slow EMA Period' }
+    },
+
+    calculate(candles, params) {
+        const fastPeriod = params.fastPeriod || this.params.fastPeriod.default;
+        const slowPeriod = params.slowPeriod || this.params.slowPeriod.default;
+
+        const fastEMA = calculateEMA(candles, fastPeriod);
+        const slowEMA = calculateEMA(candles, slowPeriod);
+        const signals = [];
+
+        for (let i = slowPeriod; i < candles.length; i++) {
+            if (fastEMA[i] === null || slowEMA[i] === null ||
+                fastEMA[i - 1] === null || slowEMA[i - 1] === null) continue;
+
+            // Fast EMA crossed above slow EMA
+            if (fastEMA[i - 1] <= slowEMA[i - 1] && fastEMA[i] > slowEMA[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `EMA(${fastPeriod}) crossed above EMA(${slowPeriod})`
+                });
+            }
+            // Fast EMA crossed below slow EMA
+            else if (fastEMA[i - 1] >= slowEMA[i - 1] && fastEMA[i] < slowEMA[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `EMA(${fastPeriod}) crossed below EMA(${slowPeriod})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Donchian Channel (Section 3.15) ---
+
+registerStrategy({
+    id: 'donchian',
+    name: 'Donchian Channel',
+    category: StrategyCategories.TREND,
+    sourceSection: '3.15',
+    description: 'Buy at channel floor (N-period low), sell at channel ceiling (N-period high).',
+
+    params: {
+        period: { default: 20, min: 5, max: 100, label: 'Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signals = [];
+
+        for (let i = period; i < candles.length; i++) {
+            // Calculate Donchian Channel
+            let upperBand = -Infinity; // Bup = max of last N highs
+            let lowerBand = Infinity;  // Bdown = min of last N lows
+
+            for (let j = i - period; j < i; j++) {
+                upperBand = Math.max(upperBand, candles[j].high);
+                lowerBand = Math.min(lowerBand, candles[j].low);
+            }
+
+            const currentClose = candles[i].close;
+            const prevClose = candles[i - 1].close;
+
+            // Price touched/crossed lower band (buy signal - potential reversal from floor)
+            if (candles[i].low <= lowerBand && prevClose > lowerBand) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Price hit Donchian lower band (${period}-period low: ${lowerBand.toFixed(2)})`
+                });
+            }
+            // Price touched/crossed upper band (sell signal - potential reversal from ceiling)
+            else if (candles[i].high >= upperBand && prevClose < upperBand) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Price hit Donchian upper band (${period}-period high: ${upperBand.toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Parabolic SAR ---
+
+registerStrategy({
+    id: 'psar',
+    name: 'Parabolic SAR',
+    category: StrategyCategories.TREND,
+    sourceSection: '3.16',
+    description: 'Buy when price crosses above SAR, sell when price crosses below SAR.',
+
+    params: {
+        step: { default: 0.02, min: 0.01, max: 0.1, label: 'Step (AF)' },
+        maxStep: { default: 0.2, min: 0.1, max: 0.5, label: 'Max Step' }
+    },
+
+    calculate(candles, params) {
+        const step = params.step || this.params.step.default;
+        const maxStep = params.maxStep || this.params.maxStep.default;
+        const signals = [];
+
+        if (candles.length < 2) return signals;
+
+        // Initialize PSAR calculation
+        let isUptrend = candles[1].close > candles[0].close;
+        let sar = isUptrend ? candles[0].low : candles[0].high;
+        let ep = isUptrend ? candles[1].high : candles[1].low; // Extreme point
+        let af = step; // Acceleration factor
+
+        const sarValues = [null, sar];
+
+        for (let i = 2; i < candles.length; i++) {
+            const prevSar = sar;
+            const prevIsUptrend = isUptrend;
+
+            // Calculate new SAR
+            sar = prevSar + af * (ep - prevSar);
+
+            // Ensure SAR is within bounds
+            if (isUptrend) {
+                // SAR must be below the prior two lows
+                sar = Math.min(sar, candles[i - 1].low, candles[i - 2].low);
+
+                // Check for reversal
+                if (candles[i].low < sar) {
+                    isUptrend = false;
+                    sar = ep; // Reset SAR to extreme point
+                    ep = candles[i].low;
+                    af = step;
+                } else {
+                    // Update extreme point
+                    if (candles[i].high > ep) {
+                        ep = candles[i].high;
+                        af = Math.min(af + step, maxStep);
+                    }
+                }
+            } else {
+                // SAR must be above the prior two highs
+                sar = Math.max(sar, candles[i - 1].high, candles[i - 2].high);
+
+                // Check for reversal
+                if (candles[i].high > sar) {
+                    isUptrend = true;
+                    sar = ep; // Reset SAR to extreme point
+                    ep = candles[i].high;
+                    af = step;
+                } else {
+                    // Update extreme point
+                    if (candles[i].low < ep) {
+                        ep = candles[i].low;
+                        af = Math.min(af + step, maxStep);
+                    }
+                }
+            }
+
+            sarValues.push(sar);
+
+            // Generate signals on trend reversals
+            if (prevIsUptrend && !isUptrend) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Price crossed below Parabolic SAR (${sar.toFixed(2)})`
+                });
+            } else if (!prevIsUptrend && isUptrend) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Price crossed above Parabolic SAR (${sar.toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
 console.log('Registered strategies:', StrategyRegistry.map(s => s.name));
 
 // ============================================================
