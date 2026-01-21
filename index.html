@@ -1,0 +1,1827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>151 Trading Strategies</title>
+
+    <!-- Choices.js CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js@10.2.0/public/assets/styles/choices.min.css">
+
+    <!-- Choices.js JS -->
+    <script src="https://cdn.jsdelivr.net/npm/choices.js@10.2.0/public/assets/scripts/choices.min.js"></script>
+
+    <!-- Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+
+    <style>
+        /* ========== CSS Reset & Base ========== */
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* ========== Dark Theme Variables ========== */
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-tertiary: #0f0f1a;
+            --text-primary: #eaeaea;
+            --text-secondary: #a0a0a0;
+            --accent-blue: #2962ff;
+            --accent-green: #00c853;
+            --accent-red: #ff5252;
+            --accent-orange: #ff6d00;
+            --accent-purple: #aa00ff;
+            --accent-yellow: #ffd600;
+            --border-color: #2a2a4a;
+        }
+
+        /* ========== Base Styles ========== */
+        html, body {
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        /* ========== Utility Classes ========== */
+        .text-green { color: var(--accent-green); }
+        .text-red { color: var(--accent-red); }
+        .text-muted { color: var(--text-secondary); }
+
+        /* ========== Layout ========== */
+        .control-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .control-group {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        /* ========== Status Indicator ========== */
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-yellow);
+        }
+
+        .status-dot.connected { background: var(--accent-green); }
+        .status-dot.reconnecting { background: var(--accent-yellow); }
+        .status-dot.disconnected { background: var(--accent-red); }
+
+        /* ========== Dropdowns ========== */
+        select {
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        select:hover {
+            border-color: var(--accent-blue);
+        }
+
+        /* ========== Strategy Slots ========== */
+        .strategy-slots {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .strategy-slot {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .strategy-select {
+            min-width: 160px;
+        }
+
+        .settings-btn {
+            padding: 6px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .settings-btn:hover {
+            background: var(--bg-primary);
+        }
+
+        /* ========== Confluence Controls ========== */
+        .confluence-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .confluence-controls label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        #threshold-slider {
+            width: 80px;
+        }
+
+        #threshold-value {
+            min-width: 16px;
+            text-align: center;
+        }
+
+        .confluence-badge {
+            padding: 6px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .confluence-badge.bullish {
+            border-color: var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        .confluence-badge.bearish {
+            border-color: var(--accent-red);
+            color: var(--accent-red);
+        }
+
+        /* ========== Settings Panel ========== */
+        .settings-panel {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 12px 16px;
+        }
+
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        #settings-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 20px;
+            cursor: pointer;
+        }
+
+        .settings-param {
+            margin-bottom: 12px;
+        }
+
+        .settings-param label {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .settings-param input {
+            padding: 6px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            width: 80px;
+        }
+
+        .apply-btn {
+            padding: 8px 16px;
+            background: var(--accent-blue);
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .apply-btn:hover {
+            opacity: 0.9;
+        }
+
+        /* ========== Chart Container ========== */
+        #chart-container {
+            flex: 1;
+            min-height: 400px;
+            background: var(--bg-tertiary);
+        }
+
+        /* ========== Signal Log ========== */
+        .signal-log {
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+        }
+
+        .signal-log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            cursor: pointer;
+        }
+
+        .signal-log-header:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .signal-log-content {
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .signal-log.expanded .signal-log-content {
+            display: block;
+        }
+
+        .signal-log.expanded .signal-log-header span::before {
+            content: '▼ ';
+        }
+
+        .signal-log.collapsed .signal-log-header span::before {
+            content: '▶ ';
+        }
+
+        .signal-log-header span::before {
+            content: '';
+        }
+
+        #export-csv-btn {
+            padding: 4px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        /* ========== Toast Notifications ========== */
+        #toast-container {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 13px;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.success { border-color: var(--accent-green); }
+        .toast.error { border-color: var(--accent-red); }
+        .toast.warning { border-color: var(--accent-yellow); }
+
+        /* ========== Signal Log Entries ========== */
+        .signal-entry {
+            display: flex;
+            gap: 16px;
+            padding: 8px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 13px;
+        }
+
+        .signal-entry:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .signal-time {
+            color: var(--text-secondary);
+            min-width: 60px;
+        }
+
+        .signal-strategy {
+            flex: 1;
+        }
+
+        .signal-type {
+            min-width: 60px;
+            font-weight: 600;
+        }
+
+        .signal-type.buy { color: var(--accent-green); }
+        .signal-type.sell { color: var(--accent-red); }
+
+        .signal-price {
+            min-width: 100px;
+            text-align: right;
+        }
+
+        /* ========== Choices.js Overrides ========== */
+        .choices {
+            margin-bottom: 0;
+        }
+
+        .choices__inner {
+            background: var(--bg-tertiary);
+            border-color: var(--border-color);
+            min-height: 38px;
+            padding: 4px 8px;
+        }
+
+        .choices__list--single {
+            padding: 4px 16px 4px 4px;
+        }
+
+        .choices__list--dropdown {
+            background: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+
+        .choices__list--dropdown .choices__item--selectable.is-highlighted {
+            background: var(--bg-tertiary);
+        }
+
+        .choices__input {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .choices[data-type*="select-one"] .choices__input {
+            background: var(--bg-secondary);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Row 1: Symbol, Timeframe, Status -->
+    <div id="row1" class="control-row">
+        <div class="control-group">
+            <select id="symbol-select">
+                <option value="BTC">BTC</option>
+            </select>
+            <select id="timeframe-select">
+                <!-- Populated by JS -->
+            </select>
+        </div>
+        <div class="status-indicator" id="status-indicator">
+            <span class="status-dot"></span>
+            <span class="status-text">Connecting...</span>
+        </div>
+    </div>
+
+    <!-- Row 2: Strategies, Threshold, Confluence -->
+    <div id="row2" class="control-row">
+        <div class="strategy-slots" id="strategy-slots">
+            <div class="strategy-slot" id="strategy-slot-1">
+                <select class="strategy-select" data-slot="1">
+                    <option value="">+ Add Strategy</option>
+                </select>
+                <button class="settings-btn" data-slot="1" style="display:none;">⚙</button>
+            </div>
+            <!-- More slots added dynamically -->
+        </div>
+        <div class="confluence-controls">
+            <label>
+                Threshold:
+                <input type="range" id="threshold-slider" min="1" max="5" value="3">
+                <span id="threshold-value">3</span>
+            </label>
+            <div class="confluence-badge" id="confluence-badge">
+                <span>No strategies</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Panel (hidden by default) -->
+    <div id="settings-panel" class="settings-panel" style="display:none;">
+        <div class="settings-header">
+            <span id="settings-title">Strategy Settings</span>
+            <button id="settings-close">×</button>
+        </div>
+        <div id="settings-content">
+            <!-- Populated dynamically -->
+        </div>
+    </div>
+
+    <!-- Chart Container -->
+    <div id="chart-container"></div>
+
+    <!-- Signal Log (collapsed) -->
+    <div id="signal-log" class="signal-log collapsed">
+        <div class="signal-log-header" id="signal-log-toggle">
+            <span>▶ Signals (<span id="signal-count">0</span>)</span>
+            <button id="export-csv-btn">Export CSV</button>
+        </div>
+        <div class="signal-log-content" id="signal-log-content">
+            <!-- Populated dynamically -->
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <script>
+// ============================================================
+// SECTION 1: CONSTANTS & CONFIGURATION
+// ============================================================
+
+const CONFIG = {
+    defaultSymbol: 'BTC',
+    defaultTimeframe: '1h',
+    defaultThreshold: 3,
+    candleLimit: 500,
+    maxStrategies: 5,
+    retryDelays: [1000, 2000, 4000, 8000],
+};
+
+// ============================================================
+// SECTION 1.5: CONNECTION STATE
+// ============================================================
+
+const ConnectionState = {
+    CONNECTING: 'connecting',
+    CONNECTED: 'connected',
+    RECONNECTING: 'reconnecting',
+    DISCONNECTED: 'disconnected'
+};
+
+let connectionState = ConnectionState.DISCONNECTED;
+let connectionStateListeners = [];
+
+function setConnectionState(state) {
+    connectionState = state;
+    connectionStateListeners.forEach(fn => fn(state));
+    console.log('Connection state:', state);
+}
+
+function onConnectionStateChange(listener) {
+    connectionStateListeners.push(listener);
+}
+
+const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '8h', '12h', '1d', '3d', '1w', '1M'];
+
+// ============================================================
+// SECTION 2: DATA PROVIDER INTERFACE
+// ============================================================
+
+/**
+ * DataProvider Interface (documentation only - JS has no interfaces)
+ *
+ * Any data provider must implement:
+ * - name: string
+ * - async getSymbols(): Promise<{symbol: string, name: string}[]>
+ * - async fetchCandles(symbol, interval, limit): Promise<Candle[]>
+ * - subscribeCandles(symbol, interval, onCandle): void
+ * - unsubscribe(): void
+ *
+ * Candle format:
+ * { time: number, open: number, high: number, low: number, close: number, volume: number }
+ */
+
+// Placeholder - will be replaced in Task 2.2
+let dataProvider = null;
+
+// ============================================================
+// SECTION 3: HYPERLIQUID DATA PROVIDER
+// ============================================================
+
+const HyperliquidProvider = {
+    name: 'hyperliquid',
+
+    // REST endpoint
+    baseUrl: 'https://api.hyperliquid.xyz/info',
+
+    // WebSocket endpoint (used later)
+    wsUrl: 'wss://api.hyperliquid.xyz/ws',
+
+    // WebSocket connection (initialized later)
+    ws: null,
+
+    /**
+     * Get available trading symbols
+     * @returns {Promise<{symbol: string, name: string}[]>}
+     */
+    async getSymbols() {
+        try {
+            const response = await fetch(this.baseUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'meta' })
+            });
+            const data = await response.json();
+
+            // Extract perpetual symbols from universe
+            return data.universe.map(item => ({
+                symbol: item.name,
+                name: item.name
+            }));
+        } catch (error) {
+            console.error('Failed to fetch symbols:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Fetch historical candles
+     * @param {string} symbol - e.g., 'BTC'
+     * @param {string} interval - e.g., '1h'
+     * @param {number} limit - number of candles
+     * @returns {Promise<Candle[]>}
+     */
+    async fetchCandles(symbol, interval, limit = 500) {
+        try {
+            // Calculate start time (go back enough to get `limit` candles)
+            const intervalMs = this._intervalToMs(interval);
+            const endTime = Date.now();
+            const startTime = endTime - (limit * intervalMs);
+
+            const response = await fetch(this.baseUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'candleSnapshot',
+                    req: {
+                        coin: symbol,
+                        interval: interval,
+                        startTime: startTime,
+                        endTime: endTime
+                    }
+                })
+            });
+
+            const data = await response.json();
+
+            // Normalize to our candle format
+            return data.map(candle => ({
+                time: Math.floor(candle.t / 1000), // Convert ms to seconds for LWC
+                open: parseFloat(candle.o),
+                high: parseFloat(candle.h),
+                low: parseFloat(candle.l),
+                close: parseFloat(candle.c),
+                volume: parseFloat(candle.v)
+            }));
+        } catch (error) {
+            console.error('Failed to fetch candles:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Convert interval string to milliseconds
+     * @private
+     */
+    _intervalToMs(interval) {
+        const units = {
+            'm': 60 * 1000,
+            'h': 60 * 60 * 1000,
+            'd': 24 * 60 * 60 * 1000,
+            'w': 7 * 24 * 60 * 60 * 1000,
+            'M': 30 * 24 * 60 * 60 * 1000
+        };
+        const match = interval.match(/^(\d+)([mhdwM])$/);
+        if (!match) throw new Error(`Invalid interval: ${interval}`);
+        return parseInt(match[1]) * units[match[2]];
+    },
+
+    /**
+     * Subscribe to real-time candle updates
+     * @param {string} symbol
+     * @param {string} interval
+     * @param {function} onCandle - callback receiving normalized candle
+     */
+    subscribeCandles(symbol, interval, onCandle) {
+        this.unsubscribe();
+        setConnectionState(ConnectionState.CONNECTING);
+
+        this.ws = new WebSocket(this.wsUrl);
+        this._onCandle = onCandle;
+        this._currentSymbol = symbol;
+        this._currentInterval = interval;
+        this._reconnectAttempt = 0;
+
+        this.ws.onopen = () => {
+            console.log('WebSocket connected');
+            setConnectionState(ConnectionState.CONNECTED);
+            this._reconnectAttempt = 0;
+
+            this.ws.send(JSON.stringify({
+                method: 'subscribe',
+                subscription: {
+                    type: 'candle',
+                    coin: symbol,
+                    interval: interval
+                }
+            }));
+        };
+
+        this.ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                if (message.channel === 'candle' && message.data) {
+                    const candle = message.data;
+                    const normalized = {
+                        time: Math.floor(candle.t / 1000),
+                        open: parseFloat(candle.o),
+                        high: parseFloat(candle.h),
+                        low: parseFloat(candle.l),
+                        close: parseFloat(candle.c),
+                        volume: parseFloat(candle.v)
+                    };
+                    this._onCandle(normalized);
+                }
+            } catch (err) {
+                console.error('WebSocket message parse error:', err);
+            }
+        };
+
+        this.ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        this.ws.onclose = () => {
+            console.log('WebSocket closed');
+            this._handleReconnect(symbol, interval, onCandle);
+        };
+    },
+
+    _handleReconnect(symbol, interval, onCandle) {
+        if (this._reconnectAttempt >= CONFIG.retryDelays.length) {
+            setConnectionState(ConnectionState.DISCONNECTED);
+            console.error('Max reconnection attempts reached');
+            return;
+        }
+
+        setConnectionState(ConnectionState.RECONNECTING);
+        const delay = CONFIG.retryDelays[this._reconnectAttempt];
+        console.log(`Reconnecting in ${delay}ms... (attempt ${this._reconnectAttempt + 1})`);
+
+        setTimeout(() => {
+            this._reconnectAttempt++;
+            this.subscribeCandles(symbol, interval, onCandle);
+        }, delay);
+    },
+
+    /**
+     * Unsubscribe and close WebSocket connection
+     */
+    unsubscribe() {
+        if (this.ws) {
+            // Send unsubscribe before closing
+            if (this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({
+                    method: 'unsubscribe',
+                    subscription: {
+                        type: 'candle',
+                        coin: this._currentSymbol,
+                        interval: this._currentInterval
+                    }
+                }));
+            }
+            this.ws.close();
+            this.ws = null;
+        }
+    }
+};
+
+// Set as the active provider
+dataProvider = HyperliquidProvider;
+
+// ============================================================
+// SECTION 4: CHART MANAGER
+// ============================================================
+
+const ChartManager = {
+    chart: null,
+    candleSeries: null,
+    container: null,
+
+    /**
+     * Initialize the chart
+     */
+    init() {
+        this.container = document.getElementById('chart-container');
+
+        this.chart = LightweightCharts.createChart(this.container, {
+            layout: {
+                background: { type: 'solid', color: '#0f0f1a' },
+                textColor: '#a0a0a0',
+            },
+            grid: {
+                vertLines: { color: '#1a1a2e' },
+                horzLines: { color: '#1a1a2e' },
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+            },
+            rightPriceScale: {
+                borderColor: '#2a2a4a',
+            },
+            timeScale: {
+                borderColor: '#2a2a4a',
+                timeVisible: true,
+                secondsVisible: false,
+            },
+        });
+
+        this.candleSeries = this.chart.addCandlestickSeries({
+            upColor: '#00c853',
+            downColor: '#ff5252',
+            borderUpColor: '#00c853',
+            borderDownColor: '#ff5252',
+            wickUpColor: '#00c853',
+            wickDownColor: '#ff5252',
+        });
+
+        // Handle resize
+        window.addEventListener('resize', () => this.resize());
+        this.resize();
+    },
+
+    /**
+     * Resize chart to fit container
+     */
+    resize() {
+        if (this.chart && this.container) {
+            this.chart.applyOptions({
+                width: this.container.clientWidth,
+                height: this.container.clientHeight,
+            });
+        }
+    },
+
+    /**
+     * Set candle data
+     * @param {Candle[]} candles
+     */
+    setData(candles) {
+        if (this.candleSeries) {
+            this.candleSeries.setData(candles);
+            this.chart.timeScale().fitContent();
+        }
+    },
+
+    /**
+     * Update the latest candle
+     * @param {Candle} candle
+     */
+    updateCandle(candle) {
+        if (this.candleSeries) {
+            this.candleSeries.update(candle);
+        }
+    },
+
+    /**
+     * Add markers to the chart
+     * @param {Marker[]} markers
+     */
+    setMarkers(markers) {
+        if (this.candleSeries) {
+            this.candleSeries.setMarkers(markers);
+        }
+    }
+};
+
+// ============================================================
+// SECTION 5: UI CONTROLLER
+// ============================================================
+
+const UIController = {
+    symbolChoices: null,
+
+    async initSymbolSelect() {
+        const select = document.getElementById('symbol-select');
+
+        // Fetch available symbols
+        const symbols = await dataProvider.getSymbols();
+
+        // Clear and populate
+        select.innerHTML = '';
+        symbols.forEach(sym => {
+            const option = document.createElement('option');
+            option.value = sym.symbol;
+            option.textContent = sym.symbol;
+            if (sym.symbol === CONFIG.defaultSymbol) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+
+        // Initialize Choices.js
+        this.symbolChoices = new Choices(select, {
+            searchEnabled: true,
+            searchPlaceholderValue: 'Search symbols...',
+            itemSelectText: '',
+            shouldSort: false,
+        });
+
+        // Handle changes
+        select.addEventListener('change', (e) => {
+            const newSymbol = e.target.value;
+            console.log('Symbol changed to:', newSymbol);
+            AppState.setSymbol(newSymbol);
+        });
+    },
+
+    updateStatus(state) {
+        const dot = document.querySelector('.status-dot');
+        const text = document.querySelector('.status-text');
+
+        dot.className = 'status-dot ' + state;
+
+        const labels = {
+            connecting: 'Connecting...',
+            connected: 'Live',
+            reconnecting: 'Reconnecting...',
+            disconnected: 'Disconnected'
+        };
+
+        text.textContent = labels[state] || state;
+    },
+
+    initTimeframeSelect() {
+        const select = document.getElementById('timeframe-select');
+
+        // Populate options
+        TIMEFRAMES.forEach(tf => {
+            const option = document.createElement('option');
+            option.value = tf;
+            option.textContent = tf;
+            if (tf === CONFIG.defaultTimeframe) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+
+        // Handle changes
+        select.addEventListener('change', (e) => {
+            const newTimeframe = e.target.value;
+            console.log('Timeframe changed to:', newTimeframe);
+            AppState.setTimeframe(newTimeframe);
+        });
+    },
+
+    initThresholdSlider() {
+        const slider = document.getElementById('threshold-slider');
+        const valueDisplay = document.getElementById('threshold-value');
+
+        // Set initial value
+        slider.value = CONFIG.defaultThreshold;
+        valueDisplay.textContent = CONFIG.defaultThreshold;
+
+        // Handle changes
+        slider.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            valueDisplay.textContent = value;
+            AppState.setThreshold(value);
+        });
+    },
+
+    initSignalLog() {
+        const log = document.getElementById('signal-log');
+        const toggle = document.getElementById('signal-log-toggle');
+
+        toggle.addEventListener('click', () => {
+            log.classList.toggle('collapsed');
+            log.classList.toggle('expanded');
+        });
+    },
+
+    addSignalToLog(signal) {
+        const content = document.getElementById('signal-log-content');
+        const countEl = document.getElementById('signal-count');
+
+        const entry = document.createElement('div');
+        entry.className = 'signal-entry';
+        entry.innerHTML = `
+            <span class="signal-time">${this.formatTime(signal.time)}</span>
+            <span class="signal-strategy">${signal.strategyName}</span>
+            <span class="signal-type ${signal.type}">${signal.type === 'buy' ? '▲' : '▼'} ${signal.type}</span>
+            <span class="signal-price">$${signal.price.toLocaleString()}</span>
+        `;
+
+        content.insertBefore(entry, content.firstChild);
+
+        // Update count
+        const count = content.children.length;
+        countEl.textContent = count;
+    },
+
+    formatTime(timestamp) {
+        const date = new Date(timestamp * 1000);
+        return date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    },
+
+    clearSignalLog() {
+        document.getElementById('signal-log-content').innerHTML = '';
+        document.getElementById('signal-count').textContent = '0';
+    },
+
+    strategyChoices: {},
+
+    initStrategySelectors() {
+        const grouped = getStrategiesByCategory();
+        const slot = document.querySelector('.strategy-select[data-slot="1"]');
+
+        // Build choices format
+        const choices = [{ value: '', label: '+ Add Strategy', selected: true }];
+
+        for (const [category, strategies] of Object.entries(grouped)) {
+            choices.push({
+                label: category,
+                id: category,
+                disabled: false,
+                choices: strategies.map(s => ({
+                    value: s.id,
+                    label: s.warning ? `${s.name} ⚠️` : s.name,
+                    customProperties: { warning: s.warning }
+                }))
+            });
+        }
+
+        // Initialize first slot with Choices.js
+        this.strategyChoices[1] = new Choices(slot, {
+            searchEnabled: true,
+            searchPlaceholderValue: 'Search strategies...',
+            itemSelectText: '',
+            choices: choices,
+            shouldSort: false,
+        });
+
+        slot.addEventListener('change', (e) => {
+            const strategyId = e.target.value;
+            if (strategyId) {
+                this.onStrategySelected(1, strategyId);
+            }
+        });
+    },
+
+    onStrategySelected(slot, strategyId) {
+        const strategy = getStrategyById(strategyId);
+        if (!strategy) return;
+
+        console.log(`Slot ${slot}: Selected ${strategy.name}`);
+
+        // Show warning toast if adapted strategy
+        if (strategy.warning) {
+            ToastManager.warning(strategy.warning, 5000);
+        }
+
+        // Show settings button
+        const settingsBtn = document.querySelector(`.settings-btn[data-slot="${slot}"]`);
+        if (settingsBtn) {
+            settingsBtn.style.display = 'inline-block';
+            settingsBtn.onclick = () => this.openSettingsPanel(slot);
+        }
+
+        // Add to AppState
+        AppState.addStrategy(slot, strategyId, {});
+    },
+
+    currentSettingsSlot: null,
+
+    openSettingsPanel(slot) {
+        const config = AppState.activeStrategies[slot];
+        if (!config) return;
+
+        const strategy = getStrategyById(config.id);
+        if (!strategy) return;
+
+        this.currentSettingsSlot = slot;
+        const panel = document.getElementById('settings-panel');
+        const title = document.getElementById('settings-title');
+        const content = document.getElementById('settings-content');
+
+        title.textContent = `${strategy.name} Settings`;
+
+        // Build parameter inputs
+        let html = '';
+        for (const [key, paramConfig] of Object.entries(strategy.params)) {
+            const currentValue = config.params[key];
+            html += `
+                <div class="settings-param">
+                    <label>${paramConfig.label}:
+                        <input type="number"
+                               id="param-${key}"
+                               value="${currentValue}"
+                               min="${paramConfig.min}"
+                               max="${paramConfig.max}">
+                    </label>
+                </div>
+            `;
+        }
+        html += '<button id="apply-settings-btn" class="apply-btn">Apply</button>';
+        content.innerHTML = html;
+
+        // Apply button handler
+        document.getElementById('apply-settings-btn').onclick = () => this.applySettings();
+
+        panel.style.display = 'block';
+    },
+
+    closeSettingsPanel() {
+        document.getElementById('settings-panel').style.display = 'none';
+        this.currentSettingsSlot = null;
+    },
+
+    applySettings() {
+        if (!this.currentSettingsSlot) return;
+
+        const config = AppState.activeStrategies[this.currentSettingsSlot];
+        if (!config) return;
+
+        const strategy = getStrategyById(config.id);
+        if (!strategy) return;
+
+        // Collect new params
+        const newParams = {};
+        for (const key of Object.keys(strategy.params)) {
+            const input = document.getElementById(`param-${key}`);
+            if (input) {
+                newParams[key] = parseInt(input.value);
+            }
+        }
+
+        // Update and recalculate
+        config.params = { ...config.params, ...newParams };
+        AppState.recalculateSignals();
+        ToastManager.success('Settings applied');
+        this.closeSettingsPanel();
+    },
+
+    initSettingsPanel() {
+        document.getElementById('settings-close').onclick = () => this.closeSettingsPanel();
+    },
+
+    initExportButton() {
+        document.getElementById('export-csv-btn').onclick = () => this.exportCSV();
+    },
+
+    // URL State Management
+    saveStateToURL() {
+        const state = {
+            s: AppState.symbol,
+            t: AppState.timeframe,
+            th: AppState.threshold
+        };
+
+        // Add active strategies
+        const strategies = Object.entries(AppState.activeStrategies).map(([slot, config]) => {
+            return `${slot}:${config.id}`;
+        });
+        if (strategies.length > 0) {
+            state.str = strategies.join(',');
+        }
+
+        const hash = Object.entries(state)
+            .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+            .join('&');
+
+        window.history.replaceState(null, '', '#' + hash);
+    },
+
+    loadStateFromURL() {
+        const hash = window.location.hash.slice(1);
+        if (!hash) return null;
+
+        const state = {};
+        hash.split('&').forEach(pair => {
+            const [key, value] = pair.split('=');
+            if (key && value) {
+                state[key] = decodeURIComponent(value);
+            }
+        });
+
+        return state;
+    },
+
+    exportCSV() {
+        const rows = [['Time', 'Strategy', 'Type', 'Price', 'Reason']];
+
+        for (const [slot, config] of Object.entries(AppState.activeStrategies)) {
+            const strategy = getStrategyById(config.id);
+            if (!strategy) continue;
+
+            for (const signal of config.signals) {
+                const candle = AppState.candles.find(c => c.time === signal.time);
+                const price = candle ? candle.close : 'N/A';
+
+                rows.push([
+                    new Date(signal.time * 1000).toISOString(),
+                    strategy.name,
+                    signal.type,
+                    price,
+                    signal.reason || ''
+                ]);
+            }
+        }
+
+        // Sort by time
+        rows.slice(1).sort((a, b) => new Date(a[0]) - new Date(b[0]));
+
+        // Convert to CSV
+        const csv = rows.map(row =>
+            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+
+        // Download
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `signals_${AppState.symbol}_${AppState.timeframe}_${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        ToastManager.success('CSV exported');
+    }
+};
+
+// ============================================================
+// SECTION 7: TOAST MANAGER
+// ============================================================
+
+const ToastManager = {
+    container: null,
+
+    init() {
+        this.container = document.getElementById('toast-container');
+    },
+
+    show(message, type = 'info', duration = 3000) {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+
+        this.container.appendChild(toast);
+
+        if (duration > 0) {
+            setTimeout(() => {
+                toast.remove();
+            }, duration);
+        }
+
+        return toast; // Return for manual removal
+    },
+
+    success(message, duration) {
+        return this.show('✓ ' + message, 'success', duration);
+    },
+
+    error(message, duration) {
+        return this.show('✗ ' + message, 'error', duration);
+    },
+
+    warning(message, duration) {
+        return this.show('⚠ ' + message, 'warning', duration);
+    }
+};
+
+// Listen to connection state changes
+onConnectionStateChange((state) => {
+    UIController.updateStatus(state);
+
+    // Show toasts for state changes
+    if (state === ConnectionState.CONNECTED) {
+        ToastManager.success('Connected to Hyperliquid');
+    } else if (state === ConnectionState.RECONNECTING) {
+        ToastManager.warning('Connection lost, reconnecting...', 0);
+    } else if (state === ConnectionState.DISCONNECTED) {
+        ToastManager.error('Disconnected. Check your network.', 0);
+    }
+});
+
+// ============================================================
+// SECTION 6: APP STATE
+// ============================================================
+
+const AppState = {
+    symbol: CONFIG.defaultSymbol,
+    timeframe: CONFIG.defaultTimeframe,
+    strategies: [],
+    threshold: CONFIG.defaultThreshold,
+    candles: [],
+
+    async setTimeframe(tf) {
+        this.timeframe = tf;
+        await this.reload();
+    },
+
+    async setSymbol(sym) {
+        this.symbol = sym;
+        await this.reload();
+    },
+
+    setThreshold(value) {
+        this.threshold = value;
+        console.log('Threshold set to:', value);
+        this.recalculateSignals();
+    },
+
+    activeStrategies: {}, // { slot: { id, params, signals } }
+
+    addStrategy(slot, strategyId, params) {
+        const strategy = getStrategyById(strategyId);
+        if (!strategy) return;
+
+        // Merge with defaults
+        const finalParams = {};
+        for (const [key, config] of Object.entries(strategy.params)) {
+            finalParams[key] = params[key] !== undefined ? params[key] : config.default;
+        }
+
+        this.activeStrategies[slot] = {
+            id: strategyId,
+            params: finalParams,
+            signals: []
+        };
+
+        this.recalculateSignals();
+    },
+
+    removeStrategy(slot) {
+        delete this.activeStrategies[slot];
+        this.recalculateSignals();
+    },
+
+    recalculateSignals() {
+        console.log('Recalculating signals for', Object.keys(this.activeStrategies).length, 'strategies');
+
+        for (const [slot, config] of Object.entries(this.activeStrategies)) {
+            const strategy = getStrategyById(config.id);
+            if (strategy && this.candles.length > 0) {
+                config.signals = strategy.calculate(this.candles, config.params);
+                console.log(`Slot ${slot} (${strategy.name}): ${config.signals.length} signals`);
+            }
+        }
+
+        // Update chart markers
+        this.updateChartMarkers();
+
+        // Update confluence
+        this.updateConfluence();
+    },
+
+    updateConfluence() {
+        const activeCount = Object.keys(this.activeStrategies).length;
+        const badge = document.getElementById('confluence-badge');
+
+        if (activeCount === 0) {
+            badge.innerHTML = '<span>No strategies</span>';
+            badge.className = 'confluence-badge';
+            return;
+        }
+
+        // Get latest candle time
+        if (this.candles.length === 0) return;
+        const latestTime = this.candles[this.candles.length - 1].time;
+
+        // Count signals at or near latest time (within last few candles)
+        let buyCount = 0;
+        let sellCount = 0;
+
+        for (const config of Object.values(this.activeStrategies)) {
+            // Get most recent signal
+            const recentSignals = config.signals.filter(s => s.time >= latestTime - 86400); // Last day
+            if (recentSignals.length > 0) {
+                const latest = recentSignals[recentSignals.length - 1];
+                if (latest.type === 'buy') buyCount++;
+                else sellCount++;
+            }
+        }
+
+        // Determine confluence
+        let text, className;
+        if (buyCount >= this.threshold) {
+            text = `🟢 ${buyCount}/${activeCount} Bullish`;
+            className = 'confluence-badge bullish';
+        } else if (sellCount >= this.threshold) {
+            text = `🔴 ${sellCount}/${activeCount} Bearish`;
+            className = 'confluence-badge bearish';
+        } else {
+            text = `${buyCount} buy / ${sellCount} sell`;
+            className = 'confluence-badge';
+        }
+
+        badge.innerHTML = `<span>${text}</span>`;
+        badge.className = className;
+    },
+
+    updateChartMarkers() {
+        const colors = ['#2962FF', '#FF6D00', '#00C853', '#AA00FF', '#FFD600'];
+        const allMarkers = [];
+
+        for (const [slot, config] of Object.entries(this.activeStrategies)) {
+            const color = colors[(parseInt(slot) - 1) % colors.length];
+
+            for (const signal of config.signals) {
+                allMarkers.push({
+                    time: signal.time,
+                    position: signal.type === 'buy' ? 'belowBar' : 'aboveBar',
+                    color: color,
+                    shape: signal.type === 'buy' ? 'arrowUp' : 'arrowDown',
+                    text: signal.type === 'buy' ? '▲' : '▼'
+                });
+            }
+        }
+
+        // Sort by time
+        allMarkers.sort((a, b) => a.time - b.time);
+        ChartManager.setMarkers(allMarkers);
+    },
+
+    async reload() {
+        console.log(`Reloading: ${this.symbol} ${this.timeframe}`);
+
+        // Unsubscribe from current feed
+        dataProvider.unsubscribe();
+
+        // Fetch new data
+        this.candles = await dataProvider.fetchCandles(
+            this.symbol,
+            this.timeframe,
+            CONFIG.candleLimit
+        );
+
+        ChartManager.setData(this.candles);
+
+        // Resubscribe
+        dataProvider.subscribeCandles(
+            this.symbol,
+            this.timeframe,
+            (newCandle) => {
+                const lastCandle = this.candles[this.candles.length - 1];
+                if (lastCandle && lastCandle.time === newCandle.time) {
+                    this.candles[this.candles.length - 1] = newCandle;
+                } else {
+                    this.candles.push(newCandle);
+                    if (this.candles.length > CONFIG.candleLimit) {
+                        this.candles.shift();
+                    }
+                }
+                ChartManager.updateCandle(newCandle);
+            }
+        );
+
+        // Recalculate strategy signals with new data
+        this.recalculateSignals();
+
+        // Save state to URL
+        UIController.saveStateToURL();
+    }
+};
+
+// ============================================================
+// SECTION 8: STRATEGY REGISTRY
+// ============================================================
+
+const StrategyCategories = {
+    TREND: 'Trend Following',
+    REVERSION: 'Mean Reversion',
+    MOMENTUM: 'Momentum',
+    VOLATILITY: 'Volatility',
+    SUPPORT: 'Support/Resistance',
+    OPTIONS: 'Options-Adapted',
+    ML: 'Machine Learning',
+    MULTI: 'Multi-Factor'
+};
+
+// All strategies will be registered here
+const StrategyRegistry = [];
+
+/**
+ * Register a strategy
+ */
+function registerStrategy(strategy) {
+    // Validate required fields
+    const required = ['id', 'name', 'category', 'calculate'];
+    for (const field of required) {
+        if (!strategy[field]) {
+            throw new Error(`Strategy missing required field: ${field}`);
+        }
+    }
+
+    // Add defaults
+    strategy.params = strategy.params || {};
+    strategy.description = strategy.description || '';
+    strategy.warning = strategy.warning || null;
+    strategy.sourceSection = strategy.sourceSection || '';
+
+    StrategyRegistry.push(strategy);
+}
+
+/**
+ * Get strategies grouped by category
+ */
+function getStrategiesByCategory() {
+    const grouped = {};
+
+    for (const strategy of StrategyRegistry) {
+        if (!grouped[strategy.category]) {
+            grouped[strategy.category] = [];
+        }
+        grouped[strategy.category].push(strategy);
+    }
+
+    return grouped;
+}
+
+/**
+ * Get a strategy by ID
+ */
+function getStrategyById(id) {
+    return StrategyRegistry.find(s => s.id === id);
+}
+
+// ============================================================
+// SECTION 9: STRATEGY IMPLEMENTATIONS
+// ============================================================
+
+// --- Helper Functions ---
+
+function calculateSMA(candles, period, priceKey = 'close') {
+    const result = [];
+    for (let i = 0; i < candles.length; i++) {
+        if (i < period - 1) {
+            result.push(null);
+        } else {
+            let sum = 0;
+            for (let j = 0; j < period; j++) {
+                sum += candles[i - j][priceKey];
+            }
+            result.push(sum / period);
+        }
+    }
+    return result;
+}
+
+// --- Strategy: Single Moving Average (Section 3.11) ---
+
+registerStrategy({
+    id: 'sma',
+    name: 'Single Moving Average',
+    category: StrategyCategories.TREND,
+    sourceSection: '3.11',
+    description: 'Buy when price crosses above SMA, sell when below.',
+
+    params: {
+        period: { default: 20, min: 2, max: 500, label: 'Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const sma = calculateSMA(candles, period);
+        const signals = [];
+
+        for (let i = 1; i < candles.length; i++) {
+            if (sma[i] === null || sma[i - 1] === null) continue;
+
+            const prevPrice = candles[i - 1].close;
+            const currPrice = candles[i].close;
+            const prevSMA = sma[i - 1];
+            const currSMA = sma[i];
+
+            // Price crossed above SMA
+            if (prevPrice <= prevSMA && currPrice > currSMA) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Price crossed above SMA(${period})`
+                });
+            }
+            // Price crossed below SMA
+            else if (prevPrice >= prevSMA && currPrice < currSMA) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Price crossed below SMA(${period})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Helper: Calculate EMA ---
+
+function calculateEMA(candles, period, priceKey = 'close') {
+    const result = [];
+    const multiplier = 2 / (period + 1);
+
+    for (let i = 0; i < candles.length; i++) {
+        if (i === 0) {
+            result.push(candles[i][priceKey]);
+        } else if (i < period - 1) {
+            // Use SMA for initial values
+            let sum = 0;
+            for (let j = 0; j <= i; j++) {
+                sum += candles[j][priceKey];
+            }
+            result.push(sum / (i + 1));
+        } else {
+            const ema = (candles[i][priceKey] - result[i - 1]) * multiplier + result[i - 1];
+            result.push(ema);
+        }
+    }
+    return result;
+}
+
+// --- Helper: Calculate RSI ---
+
+function calculateRSI(candles, period = 14) {
+    const result = [];
+    const gains = [];
+    const losses = [];
+
+    for (let i = 0; i < candles.length; i++) {
+        if (i === 0) {
+            result.push(null);
+            continue;
+        }
+
+        const change = candles[i].close - candles[i - 1].close;
+        gains.push(change > 0 ? change : 0);
+        losses.push(change < 0 ? -change : 0);
+
+        if (i < period) {
+            result.push(null);
+        } else {
+            const avgGain = gains.slice(-period).reduce((a, b) => a + b, 0) / period;
+            const avgLoss = losses.slice(-period).reduce((a, b) => a + b, 0) / period;
+
+            if (avgLoss === 0) {
+                result.push(100);
+            } else {
+                const rs = avgGain / avgLoss;
+                result.push(100 - (100 / (1 + rs)));
+            }
+        }
+    }
+    return result;
+}
+
+// --- Strategy: RSI ---
+
+registerStrategy({
+    id: 'rsi',
+    name: 'Relative Strength Index',
+    category: StrategyCategories.REVERSION,
+    sourceSection: '3.9',
+    description: 'Buy when RSI crosses above oversold, sell when crosses below overbought.',
+
+    params: {
+        period: { default: 14, min: 2, max: 100, label: 'Period' },
+        overbought: { default: 70, min: 50, max: 100, label: 'Overbought' },
+        oversold: { default: 30, min: 0, max: 50, label: 'Oversold' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const overbought = params.overbought || this.params.overbought.default;
+        const oversold = params.oversold || this.params.oversold.default;
+
+        const rsi = calculateRSI(candles, period);
+        const signals = [];
+
+        for (let i = 1; i < candles.length; i++) {
+            if (rsi[i] === null || rsi[i - 1] === null) continue;
+
+            // RSI crossed above oversold
+            if (rsi[i - 1] <= oversold && rsi[i] > oversold) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `RSI crossed above ${oversold} (oversold)`
+                });
+            }
+            // RSI crossed below overbought
+            else if (rsi[i - 1] >= overbought && rsi[i] < overbought) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `RSI crossed below ${overbought} (overbought)`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Two Moving Averages (Section 3.12) ---
+
+registerStrategy({
+    id: 'sma-cross',
+    name: 'Two Moving Averages',
+    category: StrategyCategories.TREND,
+    sourceSection: '3.12',
+    description: 'Buy when fast MA crosses above slow MA, sell when below.',
+
+    params: {
+        fastPeriod: { default: 10, min: 2, max: 200, label: 'Fast Period' },
+        slowPeriod: { default: 30, min: 5, max: 500, label: 'Slow Period' }
+    },
+
+    calculate(candles, params) {
+        const fastPeriod = params.fastPeriod || this.params.fastPeriod.default;
+        const slowPeriod = params.slowPeriod || this.params.slowPeriod.default;
+
+        const fastMA = calculateSMA(candles, fastPeriod);
+        const slowMA = calculateSMA(candles, slowPeriod);
+        const signals = [];
+
+        for (let i = 1; i < candles.length; i++) {
+            if (fastMA[i] === null || slowMA[i] === null ||
+                fastMA[i - 1] === null || slowMA[i - 1] === null) continue;
+
+            // Fast crossed above slow (Golden Cross)
+            if (fastMA[i - 1] <= slowMA[i - 1] && fastMA[i] > slowMA[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `SMA(${fastPeriod}) crossed above SMA(${slowPeriod})`
+                });
+            }
+            // Fast crossed below slow (Death Cross)
+            else if (fastMA[i - 1] >= slowMA[i - 1] && fastMA[i] < slowMA[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `SMA(${fastPeriod}) crossed below SMA(${slowPeriod})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: MACD ---
+
+registerStrategy({
+    id: 'macd',
+    name: 'MACD',
+    category: StrategyCategories.MOMENTUM,
+    sourceSection: '3.12',
+    description: 'Buy on MACD line crossing above signal line, sell on crossing below.',
+
+    params: {
+        fastPeriod: { default: 12, min: 2, max: 100, label: 'Fast EMA' },
+        slowPeriod: { default: 26, min: 5, max: 200, label: 'Slow EMA' },
+        signalPeriod: { default: 9, min: 2, max: 50, label: 'Signal Period' }
+    },
+
+    calculate(candles, params) {
+        const fastPeriod = params.fastPeriod || this.params.fastPeriod.default;
+        const slowPeriod = params.slowPeriod || this.params.slowPeriod.default;
+        const signalPeriod = params.signalPeriod || this.params.signalPeriod.default;
+
+        const fastEMA = calculateEMA(candles, fastPeriod);
+        const slowEMA = calculateEMA(candles, slowPeriod);
+
+        // MACD line = Fast EMA - Slow EMA
+        const macdLine = fastEMA.map((fast, i) =>
+            (fast !== null && slowEMA[i] !== null) ? fast - slowEMA[i] : null
+        );
+
+        // Signal line = EMA of MACD line
+        const signalLine = [];
+        const multiplier = 2 / (signalPeriod + 1);
+        for (let i = 0; i < macdLine.length; i++) {
+            if (macdLine[i] === null) {
+                signalLine.push(null);
+            } else if (signalLine.length === 0 || signalLine[signalLine.length - 1] === null) {
+                signalLine.push(macdLine[i]);
+            } else {
+                const signal = (macdLine[i] - signalLine[i - 1]) * multiplier + signalLine[i - 1];
+                signalLine.push(signal);
+            }
+        }
+
+        const signals = [];
+
+        for (let i = slowPeriod + signalPeriod; i < candles.length; i++) {
+            if (macdLine[i] === null || signalLine[i] === null ||
+                macdLine[i - 1] === null || signalLine[i - 1] === null) continue;
+
+            // MACD crossed above signal
+            if (macdLine[i - 1] <= signalLine[i - 1] && macdLine[i] > signalLine[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: 'MACD crossed above signal line'
+                });
+            }
+            // MACD crossed below signal
+            else if (macdLine[i - 1] >= signalLine[i - 1] && macdLine[i] < signalLine[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: 'MACD crossed below signal line'
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+console.log('Registered strategies:', StrategyRegistry.map(s => s.name));
+
+// ============================================================
+// APP INITIALIZATION
+// ============================================================
+
+async function initApp() {
+    console.log('Initializing app...');
+
+    ToastManager.init();
+    ChartManager.init();
+    UIController.initTimeframeSelect();
+    UIController.initThresholdSlider();
+    UIController.initSignalLog();
+    UIController.initStrategySelectors();
+    UIController.initSettingsPanel();
+    UIController.initExportButton();
+    await UIController.initSymbolSelect();
+
+    // Load state from URL if present
+    const urlState = UIController.loadStateFromURL();
+    if (urlState) {
+        if (urlState.s) AppState.symbol = urlState.s;
+        if (urlState.t) AppState.timeframe = urlState.t;
+        if (urlState.th) AppState.threshold = parseInt(urlState.th);
+
+        // Update UI to reflect loaded state
+        document.getElementById('threshold-slider').value = AppState.threshold;
+        document.getElementById('threshold-value').textContent = AppState.threshold;
+    }
+
+    await AppState.reload();
+}
+
+// Start the app when DOM is ready
+document.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html>
