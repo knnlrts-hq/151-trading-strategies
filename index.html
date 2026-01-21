@@ -377,6 +377,7 @@
         .choices__list--dropdown {
             background: var(--bg-secondary);
             border-color: var(--border-color);
+            z-index: 100;
         }
 
         .choices__list--dropdown .choices__item--selectable.is-highlighted {
@@ -549,6 +550,9 @@ const HyperliquidProvider = {
     // WebSocket connection (initialized later)
     ws: null,
 
+    // Flag to track intentional disconnection (prevents reconnect on user-initiated close)
+    _intentionalClose: false,
+
     /**
      * Get available trading symbols
      * @returns {Promise<{symbol: string, name: string}[]>}
@@ -692,7 +696,11 @@ const HyperliquidProvider = {
 
         this.ws.onclose = () => {
             console.log('WebSocket closed');
-            this._handleReconnect(symbol, interval, onCandle);
+            // Only reconnect if this was an unexpected close
+            if (!this._intentionalClose) {
+                this._handleReconnect(symbol, interval, onCandle);
+            }
+            this._intentionalClose = false;
         };
     },
 
@@ -718,6 +726,9 @@ const HyperliquidProvider = {
      */
     unsubscribe() {
         if (this.ws) {
+            // Mark as intentional close to prevent reconnect toast
+            this._intentionalClose = true;
+
             // Send unsubscribe before closing
             if (this.ws.readyState === WebSocket.OPEN) {
                 this.ws.send(JSON.stringify({
@@ -1228,6 +1239,13 @@ const ToastManager = {
 
     warning(message, duration) {
         return this.show('⚠ ' + message, 'warning', duration);
+    },
+
+    clear() {
+        // Remove all toasts
+        while (this.container.firstChild) {
+            this.container.firstChild.remove();
+        }
     }
 };
 
@@ -1237,11 +1255,13 @@ onConnectionStateChange((state) => {
 
     // Show toasts for state changes
     if (state === ConnectionState.CONNECTED) {
+        // Clear any previous reconnecting/error toasts
+        ToastManager.clear();
         ToastManager.success('Connected to Hyperliquid');
     } else if (state === ConnectionState.RECONNECTING) {
-        ToastManager.warning('Connection lost, reconnecting...', 0);
+        ToastManager.warning('Connection lost, reconnecting...', 5000);
     } else if (state === ConnectionState.DISCONNECTED) {
-        ToastManager.error('Disconnected. Check your network.', 0);
+        ToastManager.error('Disconnected. Check your network.', 10000);
     }
 });
 
