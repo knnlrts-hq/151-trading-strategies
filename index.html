@@ -1614,6 +1614,60 @@ function calculateRSI(candles, period = 14) {
     return result;
 }
 
+// --- Helper: Calculate Standard Deviation ---
+
+function calculateStdDev(candles, period, priceKey = 'close') {
+    const result = [];
+    for (let i = 0; i < candles.length; i++) {
+        if (i < period - 1) {
+            result.push(null);
+        } else {
+            // Calculate mean
+            let sum = 0;
+            for (let j = 0; j < period; j++) {
+                sum += candles[i - j][priceKey];
+            }
+            const mean = sum / period;
+
+            // Calculate variance
+            let variance = 0;
+            for (let j = 0; j < period; j++) {
+                variance += Math.pow(candles[i - j][priceKey] - mean, 2);
+            }
+            variance /= period;
+
+            result.push(Math.sqrt(variance));
+        }
+    }
+    return result;
+}
+
+// --- Helper: Calculate Highest High ---
+
+function calculateHighestHigh(candles, period, startIndex) {
+    let highest = -Infinity;
+    for (let j = 0; j < period; j++) {
+        const idx = startIndex - j;
+        if (idx >= 0) {
+            highest = Math.max(highest, candles[idx].high);
+        }
+    }
+    return highest;
+}
+
+// --- Helper: Calculate Lowest Low ---
+
+function calculateLowestLow(candles, period, startIndex) {
+    let lowest = Infinity;
+    for (let j = 0; j < period; j++) {
+        const idx = startIndex - j;
+        if (idx >= 0) {
+            lowest = Math.min(lowest, candles[idx].low);
+        }
+    }
+    return lowest;
+}
+
 // --- Strategy: RSI ---
 
 registerStrategy({
@@ -2038,6 +2092,428 @@ registerStrategy({
                     strength: 1,
                     reason: `Price crossed above Parabolic SAR (${sar.toFixed(2)})`
                 });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Bollinger Bands (Section 3.17) ---
+
+registerStrategy({
+    id: 'bollinger',
+    name: 'Bollinger Bands',
+    category: StrategyCategories.REVERSION,
+    sourceSection: '3.17',
+    description: 'Buy when price crosses below lower band (oversold), sell when above upper band (overbought).',
+
+    params: {
+        period: { default: 20, min: 5, max: 100, label: 'Period' },
+        stdDev: { default: 2, min: 1, max: 4, label: 'Std Dev Multiplier' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const stdDevMultiplier = params.stdDev || this.params.stdDev.default;
+
+        const sma = calculateSMA(candles, period);
+        const stdDev = calculateStdDev(candles, period);
+        const signals = [];
+
+        for (let i = 1; i < candles.length; i++) {
+            if (sma[i] === null || stdDev[i] === null ||
+                sma[i - 1] === null || stdDev[i - 1] === null) continue;
+
+            const upperBand = sma[i] + stdDevMultiplier * stdDev[i];
+            const lowerBand = sma[i] - stdDevMultiplier * stdDev[i];
+            const prevUpperBand = sma[i - 1] + stdDevMultiplier * stdDev[i - 1];
+            const prevLowerBand = sma[i - 1] - stdDevMultiplier * stdDev[i - 1];
+
+            const currClose = candles[i].close;
+            const prevClose = candles[i - 1].close;
+
+            // Price crossed below lower band (oversold - buy signal)
+            if (prevClose >= prevLowerBand && currClose < lowerBand) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Price crossed below lower Bollinger Band (${lowerBand.toFixed(2)})`
+                });
+            }
+            // Price crossed above upper band (overbought - sell signal)
+            else if (prevClose <= prevUpperBand && currClose > upperBand) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Price crossed above upper Bollinger Band (${upperBand.toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Stochastic Oscillator (Section 3.18) ---
+
+registerStrategy({
+    id: 'stochastic',
+    name: 'Stochastic Oscillator',
+    category: StrategyCategories.REVERSION,
+    sourceSection: '3.18',
+    description: 'Buy when %K crosses above %D from below oversold, sell when %K crosses below %D from above overbought.',
+
+    params: {
+        kPeriod: { default: 14, min: 5, max: 50, label: '%K Period' },
+        dPeriod: { default: 3, min: 2, max: 10, label: '%D Period' },
+        overbought: { default: 80, min: 60, max: 95, label: 'Overbought' },
+        oversold: { default: 20, min: 5, max: 40, label: 'Oversold' }
+    },
+
+    calculate(candles, params) {
+        const kPeriod = params.kPeriod || this.params.kPeriod.default;
+        const dPeriod = params.dPeriod || this.params.dPeriod.default;
+        const overbought = params.overbought || this.params.overbought.default;
+        const oversold = params.oversold || this.params.oversold.default;
+
+        const kValues = [];
+        const dValues = [];
+        const signals = [];
+
+        // Calculate %K values
+        for (let i = 0; i < candles.length; i++) {
+            if (i < kPeriod - 1) {
+                kValues.push(null);
+                continue;
+            }
+
+            const highestHigh = calculateHighestHigh(candles, kPeriod, i);
+            const lowestLow = calculateLowestLow(candles, kPeriod, i);
+            const currentClose = candles[i].close;
+
+            if (highestHigh === lowestLow) {
+                kValues.push(50); // Avoid division by zero
+            } else {
+                const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
+                kValues.push(k);
+            }
+        }
+
+        // Calculate %D values (SMA of %K)
+        for (let i = 0; i < kValues.length; i++) {
+            if (kValues[i] === null || i < kPeriod + dPeriod - 2) {
+                dValues.push(null);
+                continue;
+            }
+
+            let sum = 0;
+            let count = 0;
+            for (let j = 0; j < dPeriod; j++) {
+                if (kValues[i - j] !== null) {
+                    sum += kValues[i - j];
+                    count++;
+                }
+            }
+            dValues.push(count > 0 ? sum / count : null);
+        }
+
+        // Generate signals
+        for (let i = 1; i < candles.length; i++) {
+            if (kValues[i] === null || dValues[i] === null ||
+                kValues[i - 1] === null || dValues[i - 1] === null) continue;
+
+            const kCurrent = kValues[i];
+            const dCurrent = dValues[i];
+            const kPrev = kValues[i - 1];
+            const dPrev = dValues[i - 1];
+
+            // %K crossed above %D from below oversold (buy signal)
+            if (kPrev <= dPrev && kCurrent > dCurrent && kPrev < oversold) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Stochastic %K(${kCurrent.toFixed(1)}) crossed above %D(${dCurrent.toFixed(1)}) from oversold`
+                });
+            }
+            // %K crossed below %D from above overbought (sell signal)
+            else if (kPrev >= dPrev && kCurrent < dCurrent && kPrev > overbought) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Stochastic %K(${kCurrent.toFixed(1)}) crossed below %D(${dCurrent.toFixed(1)}) from overbought`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Williams %R (Section 3.19) ---
+
+registerStrategy({
+    id: 'williams-r',
+    name: 'Williams %R',
+    category: StrategyCategories.REVERSION,
+    sourceSection: '3.19',
+    description: 'Buy when crosses above oversold (-80), sell when crosses below overbought (-20).',
+
+    params: {
+        period: { default: 14, min: 5, max: 50, label: 'Period' },
+        overbought: { default: -20, min: -30, max: -5, label: 'Overbought' },
+        oversold: { default: -80, min: -95, max: -70, label: 'Oversold' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const overbought = params.overbought || this.params.overbought.default;
+        const oversold = params.oversold || this.params.oversold.default;
+
+        const williamsR = [];
+        const signals = [];
+
+        // Calculate Williams %R values
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period - 1) {
+                williamsR.push(null);
+                continue;
+            }
+
+            const highestHigh = calculateHighestHigh(candles, period, i);
+            const lowestLow = calculateLowestLow(candles, period, i);
+            const currentClose = candles[i].close;
+
+            if (highestHigh === lowestLow) {
+                williamsR.push(-50); // Avoid division by zero
+            } else {
+                // %R = (Highest High - Close) / (Highest High - Lowest Low) * -100
+                const r = ((highestHigh - currentClose) / (highestHigh - lowestLow)) * -100;
+                williamsR.push(r);
+            }
+        }
+
+        // Generate signals
+        for (let i = 1; i < candles.length; i++) {
+            if (williamsR[i] === null || williamsR[i - 1] === null) continue;
+
+            const current = williamsR[i];
+            const prev = williamsR[i - 1];
+
+            // Crossed above oversold level (buy signal - exiting oversold)
+            if (prev <= oversold && current > oversold) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Williams %R(${current.toFixed(1)}) crossed above ${oversold} (oversold exit)`
+                });
+            }
+            // Crossed below overbought level (sell signal - exiting overbought)
+            else if (prev >= overbought && current < overbought) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Williams %R(${current.toFixed(1)}) crossed below ${overbought} (overbought exit)`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Commodity Channel Index (CCI) (Section 3.20) ---
+
+registerStrategy({
+    id: 'cci',
+    name: 'Commodity Channel Index',
+    category: StrategyCategories.REVERSION,
+    sourceSection: '3.20',
+    description: 'Buy when CCI crosses above -100 (oversold exit), sell when crosses below +100 (overbought exit).',
+
+    params: {
+        period: { default: 20, min: 5, max: 50, label: 'Period' },
+        overbought: { default: 100, min: 50, max: 200, label: 'Overbought' },
+        oversold: { default: -100, min: -200, max: -50, label: 'Oversold' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const overbought = params.overbought || this.params.overbought.default;
+        const oversold = params.oversold || this.params.oversold.default;
+
+        const cciValues = [];
+        const signals = [];
+
+        // Calculate CCI values
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period - 1) {
+                cciValues.push(null);
+                continue;
+            }
+
+            // Calculate Typical Price (TP) = (High + Low + Close) / 3
+            const tpArray = [];
+            for (let j = 0; j < period; j++) {
+                const idx = i - j;
+                const tp = (candles[idx].high + candles[idx].low + candles[idx].close) / 3;
+                tpArray.push(tp);
+            }
+
+            // Calculate SMA of Typical Price
+            const smaTP = tpArray.reduce((a, b) => a + b, 0) / period;
+
+            // Current Typical Price
+            const currentTP = (candles[i].high + candles[i].low + candles[i].close) / 3;
+
+            // Calculate Mean Deviation
+            let meanDeviation = 0;
+            for (let j = 0; j < period; j++) {
+                meanDeviation += Math.abs(tpArray[j] - smaTP);
+            }
+            meanDeviation /= period;
+
+            // CCI = (Typical Price - SMA of TP) / (0.015 * Mean Deviation)
+            if (meanDeviation === 0) {
+                cciValues.push(0);
+            } else {
+                const cci = (currentTP - smaTP) / (0.015 * meanDeviation);
+                cciValues.push(cci);
+            }
+        }
+
+        // Generate signals
+        for (let i = 1; i < candles.length; i++) {
+            if (cciValues[i] === null || cciValues[i - 1] === null) continue;
+
+            const current = cciValues[i];
+            const prev = cciValues[i - 1];
+
+            // CCI crossed above oversold level (buy signal)
+            if (prev <= oversold && current > oversold) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `CCI(${current.toFixed(1)}) crossed above ${oversold} (oversold exit)`
+                });
+            }
+            // CCI crossed below overbought level (sell signal)
+            else if (prev >= overbought && current < overbought) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `CCI(${current.toFixed(1)}) crossed below ${overbought} (overbought exit)`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Bollinger Band Squeeze (Section 3.21) ---
+
+registerStrategy({
+    id: 'bb-squeeze',
+    name: 'Bollinger Band Squeeze',
+    category: StrategyCategories.REVERSION,
+    sourceSection: '3.21',
+    description: 'Buy on volatility expansion after squeeze when price breaks above middle band.',
+
+    params: {
+        period: { default: 20, min: 5, max: 100, label: 'Period' },
+        stdDev: { default: 2, min: 1, max: 4, label: 'Std Dev Multiplier' },
+        squeezePeriod: { default: 6, min: 3, max: 20, label: 'Squeeze Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const stdDevMultiplier = params.stdDev || this.params.stdDev.default;
+        const squeezePeriod = params.squeezePeriod || this.params.squeezePeriod.default;
+
+        const sma = calculateSMA(candles, period);
+        const stdDev = calculateStdDev(candles, period);
+        const signals = [];
+
+        // Calculate band width for squeeze detection
+        const bandWidths = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (sma[i] === null || stdDev[i] === null) {
+                bandWidths.push(null);
+            } else {
+                // Band width = (Upper - Lower) / Middle = (4 * stdDev * multiplier) / SMA
+                const width = (2 * stdDevMultiplier * stdDev[i]) / sma[i];
+                bandWidths.push(width);
+            }
+        }
+
+        // Detect squeeze and expansion
+        for (let i = squeezePeriod + 1; i < candles.length; i++) {
+            if (bandWidths[i] === null || bandWidths[i - 1] === null || sma[i] === null) continue;
+
+            // Check if we were in a squeeze (low volatility period)
+            let wasInSqueeze = true;
+            let minWidth = Infinity;
+            for (let j = 1; j <= squeezePeriod; j++) {
+                if (bandWidths[i - j] === null) {
+                    wasInSqueeze = false;
+                    break;
+                }
+                minWidth = Math.min(minWidth, bandWidths[i - j]);
+            }
+
+            if (!wasInSqueeze) continue;
+
+            // Calculate average band width for comparison
+            let avgWidth = 0;
+            let count = 0;
+            for (let j = squeezePeriod + 1; j <= squeezePeriod + period && i - j >= 0; j++) {
+                if (bandWidths[i - j] !== null) {
+                    avgWidth += bandWidths[i - j];
+                    count++;
+                }
+            }
+            avgWidth = count > 0 ? avgWidth / count : bandWidths[i];
+
+            // Squeeze condition: recent band width is less than 75% of historical average
+            const inSqueezeZone = minWidth < avgWidth * 0.75;
+
+            // Expansion: current band width is expanding (greater than previous)
+            const isExpanding = bandWidths[i] > bandWidths[i - 1];
+
+            // Price direction
+            const priceAboveMiddle = candles[i].close > sma[i];
+            const priceBelowMiddle = candles[i].close < sma[i];
+            const prevPriceAboveMiddle = candles[i - 1].close > sma[i - 1];
+            const prevPriceBelowMiddle = candles[i - 1].close < sma[i - 1];
+
+            if (inSqueezeZone && isExpanding) {
+                // Breakout above middle band (bullish)
+                if (priceAboveMiddle && !prevPriceAboveMiddle) {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `BB Squeeze breakout: volatility expanding, price broke above middle band`
+                    });
+                }
+                // Breakout below middle band (bearish)
+                else if (priceBelowMiddle && !prevPriceBelowMiddle) {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `BB Squeeze breakout: volatility expanding, price broke below middle band`
+                    });
+                }
             }
         }
 
