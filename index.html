@@ -3851,6 +3851,543 @@ registerStrategy({
     }
 });
 
+// ============================================================
+// SECTION 9.6: OPTIONS-ADAPTED STRATEGIES (Part 1)
+// These are options strategies adapted for spot/futures trading
+// ============================================================
+
+// --- Strategy: Bull Call Spread ---
+
+registerStrategy({
+    id: 'bull-call',
+    name: 'Bull Call Spread',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.1',
+    description: 'Buy when price shows bullish momentum (RSI rising from oversold).',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        rsiPeriod: { default: 14, min: 5, max: 30, label: 'RSI Period' },
+        oversold: { default: 30, min: 10, max: 40, label: 'Oversold Level' }
+    },
+
+    calculate(candles, params) {
+        const rsiPeriod = params.rsiPeriod || this.params.rsiPeriod.default;
+        const oversold = params.oversold || this.params.oversold.default;
+        const signals = [];
+
+        const rsi = calculateRSI(candles, rsiPeriod);
+
+        for (let i = rsiPeriod + 1; i < candles.length; i++) {
+            if (rsi[i] === null || rsi[i - 1] === null) continue;
+
+            // Buy when RSI is rising from oversold territory
+            const wasOversold = rsi[i - 1] < oversold;
+            const isRising = rsi[i] > rsi[i - 1];
+            const crossedAboveOversold = rsi[i - 1] < oversold && rsi[i] >= oversold;
+
+            if (wasOversold && isRising && crossedAboveOversold) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Bull Call Spread: RSI rising from oversold (${rsi[i - 1].toFixed(1)} -> ${rsi[i].toFixed(1)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Bear Put Spread ---
+
+registerStrategy({
+    id: 'bear-put',
+    name: 'Bear Put Spread',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.2',
+    description: 'Sell when price shows bearish momentum (RSI falling from overbought).',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        rsiPeriod: { default: 14, min: 5, max: 30, label: 'RSI Period' },
+        overbought: { default: 70, min: 60, max: 90, label: 'Overbought Level' }
+    },
+
+    calculate(candles, params) {
+        const rsiPeriod = params.rsiPeriod || this.params.rsiPeriod.default;
+        const overbought = params.overbought || this.params.overbought.default;
+        const signals = [];
+
+        const rsi = calculateRSI(candles, rsiPeriod);
+
+        for (let i = rsiPeriod + 1; i < candles.length; i++) {
+            if (rsi[i] === null || rsi[i - 1] === null) continue;
+
+            // Sell when RSI is falling from overbought territory
+            const wasOverbought = rsi[i - 1] > overbought;
+            const isFalling = rsi[i] < rsi[i - 1];
+            const crossedBelowOverbought = rsi[i - 1] > overbought && rsi[i] <= overbought;
+
+            if (wasOverbought && isFalling && crossedBelowOverbought) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Bear Put Spread: RSI falling from overbought (${rsi[i - 1].toFixed(1)} -> ${rsi[i].toFixed(1)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Long Straddle ---
+
+registerStrategy({
+    id: 'long-straddle',
+    name: 'Long Straddle',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.3',
+    description: 'Buy/Sell on volatility expansion (ATR increasing significantly).',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        period: { default: 14, min: 5, max: 30, label: 'ATR Period' },
+        threshold: { default: 1.5, min: 1.1, max: 3, step: 0.1, label: 'ATR Threshold' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const threshold = params.threshold || this.params.threshold.default;
+        const signals = [];
+
+        const atr = calculateATR(candles, period);
+
+        // Calculate ATR moving average for comparison
+        const atrSMA = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period * 2 - 1 || atr[i] === null) {
+                atrSMA.push(null);
+            } else {
+                let sum = 0;
+                for (let j = 0; j < period; j++) {
+                    sum += atr[i - j];
+                }
+                atrSMA.push(sum / period);
+            }
+        }
+
+        for (let i = period * 2; i < candles.length; i++) {
+            if (atr[i] === null || atrSMA[i] === null || atrSMA[i - 1] === null) continue;
+
+            // Volatility expansion: ATR crosses above threshold * average ATR
+            const prevExpanded = atr[i - 1] > atrSMA[i - 1] * threshold;
+            const currExpanded = atr[i] > atrSMA[i] * threshold;
+
+            if (!prevExpanded && currExpanded) {
+                // Determine direction based on price movement
+                const priceChange = candles[i].close - candles[i - 1].close;
+
+                if (priceChange > 0) {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `Long Straddle: Volatility expansion bullish (ATR=${atr[i].toFixed(4)}, Avg=${atrSMA[i].toFixed(4)})`
+                    });
+                } else {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `Long Straddle: Volatility expansion bearish (ATR=${atr[i].toFixed(4)}, Avg=${atrSMA[i].toFixed(4)})`
+                    });
+                }
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Iron Condor ---
+
+registerStrategy({
+    id: 'iron-condor',
+    name: 'Iron Condor',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.4',
+    description: 'Range-bound signal when volatility is low and price in range.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        period: { default: 20, min: 10, max: 50, label: 'Lookback Period' },
+        atrMultiplier: { default: 1, min: 0.5, max: 2, step: 0.1, label: 'ATR Multiplier' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const atrMultiplier = params.atrMultiplier || this.params.atrMultiplier.default;
+        const signals = [];
+
+        const atr = calculateATR(candles, period);
+        const sma = calculateSMA(candles, period);
+
+        // Calculate ATR average for volatility comparison
+        const atrAvg = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period * 2 - 1 || atr[i] === null) {
+                atrAvg.push(null);
+            } else {
+                let sum = 0;
+                for (let j = 0; j < period; j++) {
+                    sum += atr[i - j];
+                }
+                atrAvg.push(sum / period);
+            }
+        }
+
+        for (let i = period * 2; i < candles.length; i++) {
+            if (atr[i] === null || atrAvg[i] === null || sma[i] === null) continue;
+
+            // Low volatility: ATR below average * multiplier
+            const lowVolatility = atr[i] < atrAvg[i] * atrMultiplier;
+
+            // Price in range: close near SMA
+            const priceNearSMA = Math.abs(candles[i].close - sma[i]) < atr[i];
+
+            if (lowVolatility && priceNearSMA) {
+                // In range-bound market, buy at lower range, sell at upper range
+                const distFromSMA = candles[i].close - sma[i];
+
+                if (distFromSMA < -atr[i] * 0.5) {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `Iron Condor: Low volatility, price at lower range (ATR=${atr[i].toFixed(4)})`
+                    });
+                } else if (distFromSMA > atr[i] * 0.5) {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `Iron Condor: Low volatility, price at upper range (ATR=${atr[i].toFixed(4)})`
+                    });
+                }
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Covered Call ---
+
+registerStrategy({
+    id: 'covered-call',
+    name: 'Covered Call',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.5',
+    description: 'Buy on uptrend confirmation, sell on overbought/range-bound.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        maPeriod: { default: 20, min: 10, max: 50, label: 'MA Period' },
+        rsiPeriod: { default: 14, min: 5, max: 30, label: 'RSI Period' }
+    },
+
+    calculate(candles, params) {
+        const maPeriod = params.maPeriod || this.params.maPeriod.default;
+        const rsiPeriod = params.rsiPeriod || this.params.rsiPeriod.default;
+        const signals = [];
+
+        const sma = calculateSMA(candles, maPeriod);
+        const rsi = calculateRSI(candles, rsiPeriod);
+
+        const minPeriod = Math.max(maPeriod, rsiPeriod);
+
+        for (let i = minPeriod + 1; i < candles.length; i++) {
+            if (sma[i] === null || sma[i - 1] === null || rsi[i] === null) continue;
+
+            const priceAboveMA = candles[i].close > sma[i];
+            const prevPriceAboveMA = candles[i - 1].close > sma[i - 1];
+            const isOverbought = rsi[i] > 70;
+            const maRising = sma[i] > sma[i - 1];
+
+            // Buy: Price crosses above MA in uptrend
+            if (!prevPriceAboveMA && priceAboveMA && maRising) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Covered Call: Uptrend confirmed (Price > MA=${sma[i].toFixed(2)}, RSI=${rsi[i].toFixed(1)})`
+                });
+            }
+            // Sell: Overbought or price falls back to MA
+            else if (priceAboveMA && isOverbought) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Covered Call: Overbought in range (RSI=${rsi[i].toFixed(1)}, MA=${sma[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Protective Put ---
+
+registerStrategy({
+    id: 'protective-put',
+    name: 'Protective Put',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.6',
+    description: 'Sell signal when downside risk increases (price below MA, RSI dropping).',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        maPeriod: { default: 50, min: 20, max: 100, label: 'MA Period' },
+        rsiPeriod: { default: 14, min: 5, max: 30, label: 'RSI Period' }
+    },
+
+    calculate(candles, params) {
+        const maPeriod = params.maPeriod || this.params.maPeriod.default;
+        const rsiPeriod = params.rsiPeriod || this.params.rsiPeriod.default;
+        const signals = [];
+
+        const sma = calculateSMA(candles, maPeriod);
+        const rsi = calculateRSI(candles, rsiPeriod);
+
+        const minPeriod = Math.max(maPeriod, rsiPeriod);
+
+        for (let i = minPeriod + 1; i < candles.length; i++) {
+            if (sma[i] === null || rsi[i] === null || rsi[i - 1] === null) continue;
+
+            const priceBelowMA = candles[i].close < sma[i];
+            const prevPriceBelowMA = candles[i - 1].close < sma[i - 1];
+            const rsiDropping = rsi[i] < rsi[i - 1];
+            const rsiWeak = rsi[i] < 50;
+
+            // Sell: Price crosses below MA and RSI is dropping/weak
+            if (!prevPriceBelowMA && priceBelowMA && rsiDropping && rsiWeak) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Protective Put: Downside risk increasing (Price < MA=${sma[i].toFixed(2)}, RSI=${rsi[i].toFixed(1)} dropping)`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Collar ---
+
+registerStrategy({
+    id: 'collar',
+    name: 'Collar',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.7',
+    description: 'Buy on bullish setup with risk management, sell when risk increases.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        maPeriod: { default: 20, min: 10, max: 50, label: 'MA Period' }
+    },
+
+    calculate(candles, params) {
+        const maPeriod = params.maPeriod || this.params.maPeriod.default;
+        const signals = [];
+
+        const sma = calculateSMA(candles, maPeriod);
+        const atr = calculateATR(candles, maPeriod);
+
+        for (let i = maPeriod + 1; i < candles.length; i++) {
+            if (sma[i] === null || sma[i - 1] === null || atr[i] === null) continue;
+
+            const priceAboveMA = candles[i].close > sma[i];
+            const prevPriceAboveMA = candles[i - 1].close > sma[i - 1];
+            const maRising = sma[i] > sma[i - 1];
+
+            // Calculate risk levels using ATR
+            const upperRisk = sma[i] + atr[i] * 2;
+            const lowerRisk = sma[i] - atr[i] * 2;
+
+            // Buy: Price crosses above MA in rising trend (bullish with defined risk)
+            if (!prevPriceAboveMA && priceAboveMA && maRising) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Collar: Bullish entry with risk mgmt (MA=${sma[i].toFixed(2)}, Risk range=${lowerRisk.toFixed(2)}-${upperRisk.toFixed(2)})`
+                });
+            }
+            // Sell: Price falls below lower risk level
+            else if (candles[i].close < lowerRisk && candles[i - 1].close >= lowerRisk) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Collar: Risk increased, price below protection (${candles[i].close.toFixed(2)} < ${lowerRisk.toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Bull Put Spread ---
+
+registerStrategy({
+    id: 'bull-put',
+    name: 'Bull Put Spread',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.8',
+    description: 'Buy when price bounces off support level.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        period: { default: 20, min: 10, max: 50, label: 'Lookback Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signals = [];
+
+        // Find support level as recent low
+        for (let i = period; i < candles.length; i++) {
+            // Calculate support as lowest low in lookback period
+            let support = Infinity;
+            for (let j = i - period; j < i; j++) {
+                support = Math.min(support, candles[j].low);
+            }
+
+            const tolerance = (candles[i].high - candles[i].low) * 0.5;
+            const touchedSupport = candles[i].low <= support + tolerance;
+            const closedAboveSupport = candles[i].close > support;
+            const bullishCandle = candles[i].close > candles[i].open;
+
+            // Buy: Price touches support and bounces (bullish candle closing above support)
+            if (touchedSupport && closedAboveSupport && bullishCandle) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Bull Put Spread: Price bounced off support (Support=${support.toFixed(2)}, Close=${candles[i].close.toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Bear Call Spread ---
+
+registerStrategy({
+    id: 'bear-call',
+    name: 'Bear Call Spread',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.9',
+    description: 'Sell when price hits resistance level.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        period: { default: 20, min: 10, max: 50, label: 'Lookback Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signals = [];
+
+        // Find resistance level as recent high
+        for (let i = period; i < candles.length; i++) {
+            // Calculate resistance as highest high in lookback period
+            let resistance = -Infinity;
+            for (let j = i - period; j < i; j++) {
+                resistance = Math.max(resistance, candles[j].high);
+            }
+
+            const tolerance = (candles[i].high - candles[i].low) * 0.5;
+            const touchedResistance = candles[i].high >= resistance - tolerance;
+            const closedBelowResistance = candles[i].close < resistance;
+            const bearishCandle = candles[i].close < candles[i].open;
+
+            // Sell: Price touches resistance and rejects (bearish candle closing below resistance)
+            if (touchedResistance && closedBelowResistance && bearishCandle) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Bear Call Spread: Price rejected at resistance (Resistance=${resistance.toFixed(2)}, Close=${candles[i].close.toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Long Call ---
+
+registerStrategy({
+    id: 'long-call',
+    name: 'Long Call',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.10',
+    description: 'Buy on strong bullish signal (golden cross + RSI momentum).',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        fastMa: { default: 10, min: 5, max: 20, label: 'Fast MA Period' },
+        slowMa: { default: 30, min: 20, max: 50, label: 'Slow MA Period' }
+    },
+
+    calculate(candles, params) {
+        const fastMa = params.fastMa || this.params.fastMa.default;
+        const slowMa = params.slowMa || this.params.slowMa.default;
+        const signals = [];
+
+        const fastSMA = calculateSMA(candles, fastMa);
+        const slowSMA = calculateSMA(candles, slowMa);
+        const rsi = calculateRSI(candles, 14);
+
+        for (let i = slowMa + 1; i < candles.length; i++) {
+            if (fastSMA[i] === null || fastSMA[i - 1] === null ||
+                slowSMA[i] === null || slowSMA[i - 1] === null ||
+                rsi[i] === null) continue;
+
+            // Golden cross: fast MA crosses above slow MA
+            const goldenCross = fastSMA[i - 1] <= slowSMA[i - 1] && fastSMA[i] > slowSMA[i];
+
+            // RSI momentum: RSI above 50 and rising
+            const rsiMomentum = rsi[i] > 50 && rsi[i] > rsi[i - 1];
+
+            // Buy: Golden cross with RSI momentum confirmation
+            if (goldenCross && rsiMomentum) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Long Call: Golden cross + RSI momentum (Fast=${fastSMA[i].toFixed(2)}, Slow=${slowSMA[i].toFixed(2)}, RSI=${rsi[i].toFixed(1)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
 console.log('Registered strategies:', StrategyRegistry.map(s => s.name));
 
 // ============================================================
