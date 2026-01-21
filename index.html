@@ -2521,6 +2521,490 @@ registerStrategy({
     }
 });
 
+// ============================================================
+// MOMENTUM STRATEGIES
+// ============================================================
+
+// --- Helper: Calculate True Range ---
+
+function calculateTrueRange(candles) {
+    const result = [];
+    for (let i = 0; i < candles.length; i++) {
+        if (i === 0) {
+            // First candle: TR = High - Low
+            result.push(candles[i].high - candles[i].low);
+        } else {
+            // TR = max(High - Low, |High - PrevClose|, |Low - PrevClose|)
+            const highLow = candles[i].high - candles[i].low;
+            const highPrevClose = Math.abs(candles[i].high - candles[i - 1].close);
+            const lowPrevClose = Math.abs(candles[i].low - candles[i - 1].close);
+            result.push(Math.max(highLow, highPrevClose, lowPrevClose));
+        }
+    }
+    return result;
+}
+
+// --- Strategy: Rate of Change (ROC) ---
+
+registerStrategy({
+    id: 'roc',
+    name: 'Rate of Change',
+    category: StrategyCategories.MOMENTUM,
+    sourceSection: '3.1',
+    description: 'Buy when ROC crosses above 0, sell when crosses below 0.',
+
+    params: {
+        period: { default: 12, min: 1, max: 100, label: 'Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signals = [];
+
+        // Calculate ROC values: ROC = (Close - Close[n]) / Close[n] * 100
+        const rocValues = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period) {
+                rocValues.push(null);
+            } else {
+                const roc = ((candles[i].close - candles[i - period].close) / candles[i - period].close) * 100;
+                rocValues.push(roc);
+            }
+        }
+
+        // Generate signals on zero line crossover
+        for (let i = 1; i < candles.length; i++) {
+            if (rocValues[i] === null || rocValues[i - 1] === null) continue;
+
+            // ROC crossed above 0 (buy signal)
+            if (rocValues[i - 1] <= 0 && rocValues[i] > 0) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `ROC(${period}) crossed above 0 (${rocValues[i].toFixed(2)}%)`
+                });
+            }
+            // ROC crossed below 0 (sell signal)
+            else if (rocValues[i - 1] >= 0 && rocValues[i] < 0) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `ROC(${period}) crossed below 0 (${rocValues[i].toFixed(2)}%)`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Average Directional Index (ADX) ---
+
+registerStrategy({
+    id: 'adx',
+    name: 'Average Directional Index',
+    category: StrategyCategories.MOMENTUM,
+    sourceSection: '3.2',
+    description: 'Buy when +DI crosses above -DI with ADX > threshold, sell on opposite.',
+
+    params: {
+        period: { default: 14, min: 5, max: 50, label: 'Period' },
+        threshold: { default: 25, min: 10, max: 50, label: 'ADX Threshold' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const threshold = params.threshold || this.params.threshold.default;
+        const signals = [];
+
+        if (candles.length < period + 1) return signals;
+
+        // Calculate True Range
+        const trueRange = calculateTrueRange(candles);
+
+        // Calculate +DM and -DM (Directional Movement)
+        const plusDM = [];
+        const minusDM = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i === 0) {
+                plusDM.push(0);
+                minusDM.push(0);
+            } else {
+                const upMove = candles[i].high - candles[i - 1].high;
+                const downMove = candles[i - 1].low - candles[i].low;
+
+                if (upMove > downMove && upMove > 0) {
+                    plusDM.push(upMove);
+                } else {
+                    plusDM.push(0);
+                }
+
+                if (downMove > upMove && downMove > 0) {
+                    minusDM.push(downMove);
+                } else {
+                    minusDM.push(0);
+                }
+            }
+        }
+
+        // Smooth the values using Wilder's smoothing (similar to EMA)
+        const smoothTR = [];
+        const smoothPlusDM = [];
+        const smoothMinusDM = [];
+
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period) {
+                // Sum first 'period' values
+                if (i === period - 1) {
+                    let sumTR = 0, sumPlusDM = 0, sumMinusDM = 0;
+                    for (let j = 0; j < period; j++) {
+                        sumTR += trueRange[j];
+                        sumPlusDM += plusDM[j];
+                        sumMinusDM += minusDM[j];
+                    }
+                    smoothTR.push(sumTR);
+                    smoothPlusDM.push(sumPlusDM);
+                    smoothMinusDM.push(sumMinusDM);
+                } else {
+                    smoothTR.push(null);
+                    smoothPlusDM.push(null);
+                    smoothMinusDM.push(null);
+                }
+            } else {
+                // Wilder's smoothing: smoothed = prev - (prev / period) + current
+                smoothTR.push(smoothTR[i - 1] - (smoothTR[i - 1] / period) + trueRange[i]);
+                smoothPlusDM.push(smoothPlusDM[i - 1] - (smoothPlusDM[i - 1] / period) + plusDM[i]);
+                smoothMinusDM.push(smoothMinusDM[i - 1] - (smoothMinusDM[i - 1] / period) + minusDM[i]);
+            }
+        }
+
+        // Calculate +DI and -DI
+        const plusDI = [];
+        const minusDI = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (smoothTR[i] === null || smoothTR[i] === 0) {
+                plusDI.push(null);
+                minusDI.push(null);
+            } else {
+                plusDI.push((smoothPlusDM[i] / smoothTR[i]) * 100);
+                minusDI.push((smoothMinusDM[i] / smoothTR[i]) * 100);
+            }
+        }
+
+        // Calculate DX and ADX
+        const dx = [];
+        const adx = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (plusDI[i] === null || minusDI[i] === null) {
+                dx.push(null);
+                adx.push(null);
+            } else {
+                const diSum = plusDI[i] + minusDI[i];
+                const diDiff = Math.abs(plusDI[i] - minusDI[i]);
+                dx.push(diSum === 0 ? 0 : (diDiff / diSum) * 100);
+
+                // ADX = smoothed DX
+                if (i < period * 2 - 1) {
+                    adx.push(null);
+                } else if (i === period * 2 - 1) {
+                    // First ADX = average of first 'period' DX values
+                    let sumDX = 0;
+                    for (let j = period; j <= i; j++) {
+                        sumDX += dx[j] || 0;
+                    }
+                    adx.push(sumDX / period);
+                } else {
+                    // Subsequent ADX values use Wilder's smoothing
+                    adx.push(((adx[i - 1] * (period - 1)) + dx[i]) / period);
+                }
+            }
+        }
+
+        // Generate signals
+        for (let i = 1; i < candles.length; i++) {
+            if (plusDI[i] === null || minusDI[i] === null || adx[i] === null ||
+                plusDI[i - 1] === null || minusDI[i - 1] === null) continue;
+
+            // +DI crossed above -DI with ADX > threshold (buy signal)
+            if (plusDI[i - 1] <= minusDI[i - 1] && plusDI[i] > minusDI[i] && adx[i] > threshold) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `+DI(${plusDI[i].toFixed(1)}) crossed above -DI(${minusDI[i].toFixed(1)}), ADX=${adx[i].toFixed(1)}`
+                });
+            }
+            // -DI crossed above +DI with ADX > threshold (sell signal)
+            else if (minusDI[i - 1] <= plusDI[i - 1] && minusDI[i] > plusDI[i] && adx[i] > threshold) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `-DI(${minusDI[i].toFixed(1)}) crossed above +DI(${plusDI[i].toFixed(1)}), ADX=${adx[i].toFixed(1)}`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Price Momentum (Section 3.1) ---
+
+registerStrategy({
+    id: 'momentum',
+    name: 'Price Momentum',
+    category: StrategyCategories.MOMENTUM,
+    sourceSection: '3.1',
+    description: 'Buy when momentum is positive and increasing, sell when negative and decreasing.',
+
+    params: {
+        period: { default: 10, min: 1, max: 100, label: 'Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signals = [];
+
+        // Calculate Momentum values: Momentum = Close - Close[n]
+        const momentumValues = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period) {
+                momentumValues.push(null);
+            } else {
+                const momentum = candles[i].close - candles[i - period].close;
+                momentumValues.push(momentum);
+            }
+        }
+
+        // Generate signals based on momentum being positive/negative and increasing/decreasing
+        for (let i = 2; i < candles.length; i++) {
+            if (momentumValues[i] === null || momentumValues[i - 1] === null || momentumValues[i - 2] === null) continue;
+
+            const currMom = momentumValues[i];
+            const prevMom = momentumValues[i - 1];
+            const prevPrevMom = momentumValues[i - 2];
+
+            // Momentum is positive and increasing (buy signal)
+            const isPositive = currMom > 0;
+            const isIncreasing = currMom > prevMom;
+            const wasNotPositiveIncreasing = !(prevMom > 0 && prevMom > prevPrevMom);
+
+            if (isPositive && isIncreasing && wasNotPositiveIncreasing) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Momentum(${period}) positive and increasing: ${currMom.toFixed(2)}`
+                });
+            }
+
+            // Momentum is negative and decreasing (sell signal)
+            const isNegative = currMom < 0;
+            const isDecreasing = currMom < prevMom;
+            const wasNotNegativeDecreasing = !(prevMom < 0 && prevMom < prevPrevMom);
+
+            if (isNegative && isDecreasing && wasNotNegativeDecreasing) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Momentum(${period}) negative and decreasing: ${currMom.toFixed(2)}`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Chaikin Money Flow (CMF) ---
+
+registerStrategy({
+    id: 'cmf',
+    name: 'Chaikin Money Flow',
+    category: StrategyCategories.MOMENTUM,
+    sourceSection: '3.3',
+    description: 'Buy when CMF crosses above 0 (money flowing in), sell when below.',
+
+    params: {
+        period: { default: 20, min: 5, max: 50, label: 'Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signals = [];
+
+        // Calculate Money Flow Multiplier and Money Flow Volume for each candle
+        // MFM = ((Close - Low) - (High - Close)) / (High - Low)
+        // MFV = MFM * Volume
+        const mfv = [];
+        for (let i = 0; i < candles.length; i++) {
+            const high = candles[i].high;
+            const low = candles[i].low;
+            const close = candles[i].close;
+            const volume = candles[i].volume;
+
+            const range = high - low;
+            if (range === 0) {
+                mfv.push(0);
+            } else {
+                const mfm = ((close - low) - (high - close)) / range;
+                mfv.push(mfm * volume);
+            }
+        }
+
+        // Calculate CMF = Sum(MFV, period) / Sum(Volume, period)
+        const cmfValues = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period - 1) {
+                cmfValues.push(null);
+            } else {
+                let sumMFV = 0;
+                let sumVolume = 0;
+                for (let j = 0; j < period; j++) {
+                    sumMFV += mfv[i - j];
+                    sumVolume += candles[i - j].volume;
+                }
+                cmfValues.push(sumVolume === 0 ? 0 : sumMFV / sumVolume);
+            }
+        }
+
+        // Generate signals on zero line crossover
+        for (let i = 1; i < candles.length; i++) {
+            if (cmfValues[i] === null || cmfValues[i - 1] === null) continue;
+
+            // CMF crossed above 0 (buy signal - money flowing in)
+            if (cmfValues[i - 1] <= 0 && cmfValues[i] > 0) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `CMF(${period}) crossed above 0 (${cmfValues[i].toFixed(3)}) - money flowing in`
+                });
+            }
+            // CMF crossed below 0 (sell signal - money flowing out)
+            else if (cmfValues[i - 1] >= 0 && cmfValues[i] < 0) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `CMF(${period}) crossed below 0 (${cmfValues[i].toFixed(3)}) - money flowing out`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Awesome Oscillator ---
+
+registerStrategy({
+    id: 'awesome',
+    name: 'Awesome Oscillator',
+    category: StrategyCategories.MOMENTUM,
+    sourceSection: '3.4',
+    description: 'Buy on bullish saucer pattern or zero line cross, sell on bearish.',
+
+    params: {
+        fastPeriod: { default: 5, min: 2, max: 20, label: 'Fast Period' },
+        slowPeriod: { default: 34, min: 10, max: 100, label: 'Slow Period' }
+    },
+
+    calculate(candles, params) {
+        const fastPeriod = params.fastPeriod || this.params.fastPeriod.default;
+        const slowPeriod = params.slowPeriod || this.params.slowPeriod.default;
+        const signals = [];
+
+        // Calculate Median Price for each candle
+        const medianPrices = candles.map(c => (c.high + c.low) / 2);
+
+        // Create pseudo-candles with median price as 'close' for SMA calculation
+        const pseudoCandles = medianPrices.map(mp => ({ close: mp }));
+
+        // Calculate SMA of Median Price
+        const fastSMA = calculateSMA(pseudoCandles, fastPeriod);
+        const slowSMA = calculateSMA(pseudoCandles, slowPeriod);
+
+        // Calculate AO = SMA(Median Price, fast) - SMA(Median Price, slow)
+        const aoValues = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (fastSMA[i] === null || slowSMA[i] === null) {
+                aoValues.push(null);
+            } else {
+                aoValues.push(fastSMA[i] - slowSMA[i]);
+            }
+        }
+
+        // Generate signals
+        for (let i = 3; i < candles.length; i++) {
+            if (aoValues[i] === null || aoValues[i - 1] === null ||
+                aoValues[i - 2] === null || aoValues[i - 3] === null) continue;
+
+            // Zero Line Cross: Buy when AO crosses above 0, Sell when crosses below 0
+            if (aoValues[i - 1] <= 0 && aoValues[i] > 0) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `AO crossed above zero line (${aoValues[i].toFixed(2)})`
+                });
+            } else if (aoValues[i - 1] >= 0 && aoValues[i] < 0) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `AO crossed below zero line (${aoValues[i].toFixed(2)})`
+                });
+            }
+
+            // Bullish Saucer: AO above 0, two consecutive red bars followed by green bar
+            // Red bar: AO < previous AO, Green bar: AO > previous AO
+            const bar3 = aoValues[i - 2];
+            const bar2 = aoValues[i - 1];
+            const bar1 = aoValues[i];
+
+            const isAboveZero = bar3 > 0 && bar2 > 0 && bar1 > 0;
+            const bullishSaucer = isAboveZero &&
+                                  bar3 > aoValues[i - 3] && // first bar is green (or any)
+                                  bar2 < bar3 &&            // second bar is red
+                                  bar1 > bar2;              // third bar is green
+
+            if (bullishSaucer && !(aoValues[i - 1] > aoValues[i - 2])) {
+                // Only signal if this is the first green bar after reds
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `AO Bullish Saucer pattern (${aoValues[i].toFixed(2)})`
+                });
+            }
+
+            // Bearish Saucer: AO below 0, two consecutive green bars followed by red bar
+            const isBelowZero = bar3 < 0 && bar2 < 0 && bar1 < 0;
+            const bearishSaucer = isBelowZero &&
+                                  bar3 < aoValues[i - 3] && // first bar is red (or any)
+                                  bar2 > bar3 &&            // second bar is green
+                                  bar1 < bar2;              // third bar is red
+
+            if (bearishSaucer && !(aoValues[i - 1] < aoValues[i - 2])) {
+                // Only signal if this is the first red bar after greens
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `AO Bearish Saucer pattern (${aoValues[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
 console.log('Registered strategies:', StrategyRegistry.map(s => s.name));
 
 // ============================================================
