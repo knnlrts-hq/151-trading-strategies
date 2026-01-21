@@ -4995,6 +4995,896 @@ registerStrategy({
     }
 });
 
+// ============================================================
+// SECTION 9.8: MULTI-FACTOR STRATEGIES
+// These strategies combine multiple indicators for more robust signals
+// ============================================================
+
+// --- Strategy: Triple Indicator ---
+
+registerStrategy({
+    id: 'triple-indicator',
+    name: 'Triple Indicator',
+    category: StrategyCategories.MULTI,
+    sourceSection: '7.1',
+    description: 'Buy when RSI, MACD, and MA all align bullish.',
+
+    params: {
+        rsiPeriod: { default: 14, min: 5, max: 30, label: 'RSI Period' },
+        maPeriod: { default: 20, min: 10, max: 100, label: 'MA Period' }
+    },
+
+    calculate(candles, params) {
+        const rsiPeriod = params.rsiPeriod || this.params.rsiPeriod.default;
+        const maPeriod = params.maPeriod || this.params.maPeriod.default;
+        const signals = [];
+
+        const rsi = calculateRSI(candles, rsiPeriod);
+        const sma = calculateSMA(candles, maPeriod);
+
+        // MACD calculation
+        const fastEMA = calculateEMA(candles, 12);
+        const slowEMA = calculateEMA(candles, 26);
+        const macdLine = fastEMA.map((fast, i) =>
+            (fast !== null && slowEMA[i] !== null) ? fast - slowEMA[i] : null
+        );
+
+        // Signal line
+        const signalLine = [];
+        const multiplier = 2 / 10;
+        for (let i = 0; i < macdLine.length; i++) {
+            if (macdLine[i] === null) {
+                signalLine.push(null);
+            } else if (signalLine.length === 0 || signalLine[signalLine.length - 1] === null) {
+                signalLine.push(macdLine[i]);
+            } else {
+                const signal = (macdLine[i] - signalLine[i - 1]) * multiplier + signalLine[i - 1];
+                signalLine.push(signal);
+            }
+        }
+
+        const minPeriod = Math.max(rsiPeriod, maPeriod, 26) + 1;
+
+        for (let i = minPeriod; i < candles.length; i++) {
+            if (rsi[i] === null || sma[i] === null || macdLine[i] === null || signalLine[i] === null) continue;
+
+            // RSI bullish: above 50 and rising
+            const rsiBullish = rsi[i] > 50 && rsi[i] > rsi[i - 1];
+
+            // MACD bullish: line above signal
+            const macdBullish = macdLine[i] > signalLine[i];
+
+            // MA bullish: price above MA and MA rising
+            const maBullish = candles[i].close > sma[i] && sma[i] > sma[i - 1];
+
+            // RSI bearish: below 50 and falling
+            const rsiBearish = rsi[i] < 50 && rsi[i] < rsi[i - 1];
+
+            // MACD bearish: line below signal
+            const macdBearish = macdLine[i] < signalLine[i];
+
+            // MA bearish: price below MA and MA falling
+            const maBearish = candles[i].close < sma[i] && sma[i] < sma[i - 1];
+
+            // Buy when all three align bullish
+            if (rsiBullish && macdBullish && maBullish) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Triple Indicator: RSI(${rsi[i].toFixed(1)}), MACD, MA all bullish`
+                });
+            }
+            // Sell when all three align bearish
+            else if (rsiBearish && macdBearish && maBearish) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Triple Indicator: RSI(${rsi[i].toFixed(1)}), MACD, MA all bearish`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Trend + Momentum ---
+
+registerStrategy({
+    id: 'trend-momentum',
+    name: 'Trend + Momentum',
+    category: StrategyCategories.MULTI,
+    sourceSection: '7.2',
+    description: 'Buy when price in uptrend (above MA) AND momentum positive.',
+
+    params: {
+        maPeriod: { default: 50, min: 20, max: 200, label: 'MA Period' },
+        momentumPeriod: { default: 10, min: 5, max: 30, label: 'Momentum Period' }
+    },
+
+    calculate(candles, params) {
+        const maPeriod = params.maPeriod || this.params.maPeriod.default;
+        const momentumPeriod = params.momentumPeriod || this.params.momentumPeriod.default;
+        const signals = [];
+
+        const sma = calculateSMA(candles, maPeriod);
+
+        // Calculate momentum: current close - close n periods ago
+        const momentum = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < momentumPeriod) {
+                momentum.push(null);
+            } else {
+                momentum.push(candles[i].close - candles[i - momentumPeriod].close);
+            }
+        }
+
+        const minPeriod = Math.max(maPeriod, momentumPeriod) + 1;
+
+        for (let i = minPeriod; i < candles.length; i++) {
+            if (sma[i] === null || sma[i - 1] === null || momentum[i] === null || momentum[i - 1] === null) continue;
+
+            const priceAboveMA = candles[i].close > sma[i];
+            const prevPriceAboveMA = candles[i - 1].close > sma[i - 1];
+            const priceBelowMA = candles[i].close < sma[i];
+            const prevPriceBelowMA = candles[i - 1].close < sma[i - 1];
+
+            const momentumPositive = momentum[i] > 0;
+            const momentumNegative = momentum[i] < 0;
+            const momentumRising = momentum[i] > momentum[i - 1];
+            const momentumFalling = momentum[i] < momentum[i - 1];
+
+            // Buy: Price above MA + positive rising momentum
+            if (priceAboveMA && momentumPositive && momentumRising &&
+                !(prevPriceAboveMA && momentum[i - 1] > 0 && momentum[i - 1] > (momentum[i - 2] || 0))) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Trend + Momentum: Uptrend with positive momentum (MA=${sma[i].toFixed(2)}, Mom=${momentum[i].toFixed(2)})`
+                });
+            }
+            // Sell: Price below MA + negative falling momentum
+            else if (priceBelowMA && momentumNegative && momentumFalling &&
+                !(prevPriceBelowMA && momentum[i - 1] < 0 && momentum[i - 1] < (momentum[i - 2] || 0))) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Trend + Momentum: Downtrend with negative momentum (MA=${sma[i].toFixed(2)}, Mom=${momentum[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Volume Price Trend ---
+
+registerStrategy({
+    id: 'vpt',
+    name: 'Volume Price Trend',
+    category: StrategyCategories.MULTI,
+    sourceSection: '7.3',
+    description: 'Buy when VPT is rising with price confirmation.',
+
+    params: {
+        signalPeriod: { default: 9, min: 5, max: 30, label: 'Signal Period' }
+    },
+
+    calculate(candles, params) {
+        const signalPeriod = params.signalPeriod || this.params.signalPeriod.default;
+        const signals = [];
+
+        // Calculate VPT: Previous VPT + Volume * ((Close - Previous Close) / Previous Close)
+        const vpt = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i === 0) {
+                vpt.push(0);
+            } else {
+                const priceChange = (candles[i].close - candles[i - 1].close) / candles[i - 1].close;
+                const vptValue = vpt[i - 1] + candles[i].volume * priceChange;
+                vpt.push(vptValue);
+            }
+        }
+
+        // Calculate signal line (EMA of VPT)
+        const vptSignal = [];
+        const multiplier = 2 / (signalPeriod + 1);
+        for (let i = 0; i < vpt.length; i++) {
+            if (i === 0) {
+                vptSignal.push(vpt[i]);
+            } else {
+                const signal = (vpt[i] - vptSignal[i - 1]) * multiplier + vptSignal[i - 1];
+                vptSignal.push(signal);
+            }
+        }
+
+        for (let i = signalPeriod + 1; i < candles.length; i++) {
+            const vptRising = vpt[i] > vpt[i - 1];
+            const vptFalling = vpt[i] < vpt[i - 1];
+            const priceRising = candles[i].close > candles[i - 1].close;
+            const priceFalling = candles[i].close < candles[i - 1].close;
+
+            // VPT crosses above signal line
+            const vptCrossAbove = vpt[i - 1] <= vptSignal[i - 1] && vpt[i] > vptSignal[i];
+            const vptCrossBelow = vpt[i - 1] >= vptSignal[i - 1] && vpt[i] < vptSignal[i];
+
+            // Buy: VPT rising and crosses above signal with price confirmation
+            if (vptCrossAbove && vptRising && priceRising) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `VPT: Rising VPT crossed above signal (VPT=${vpt[i].toFixed(0)})`
+                });
+            }
+            // Sell: VPT falling and crosses below signal with price confirmation
+            else if (vptCrossBelow && vptFalling && priceFalling) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `VPT: Falling VPT crossed below signal (VPT=${vpt[i].toFixed(0)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Elder Ray ---
+
+registerStrategy({
+    id: 'elder-ray',
+    name: 'Elder Ray',
+    category: StrategyCategories.MULTI,
+    sourceSection: '7.4',
+    description: 'Buy when Bull Power > 0 and rising, sell when Bear Power < 0 and falling.',
+
+    params: {
+        period: { default: 13, min: 5, max: 30, label: 'EMA Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signals = [];
+
+        const ema = calculateEMA(candles, period);
+
+        // Calculate Bull Power (High - EMA) and Bear Power (Low - EMA)
+        const bullPower = [];
+        const bearPower = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (ema[i] === null) {
+                bullPower.push(null);
+                bearPower.push(null);
+            } else {
+                bullPower.push(candles[i].high - ema[i]);
+                bearPower.push(candles[i].low - ema[i]);
+            }
+        }
+
+        for (let i = period + 1; i < candles.length; i++) {
+            if (bullPower[i] === null || bullPower[i - 1] === null ||
+                bearPower[i] === null || bearPower[i - 1] === null ||
+                ema[i] === null || ema[i - 1] === null) continue;
+
+            const bullPositive = bullPower[i] > 0;
+            const bullRising = bullPower[i] > bullPower[i - 1];
+            const bearNegative = bearPower[i] < 0;
+            const bearFalling = bearPower[i] < bearPower[i - 1];
+            const emaRising = ema[i] > ema[i - 1];
+            const emaFalling = ema[i] < ema[i - 1];
+
+            // Buy: Bull Power > 0, rising, and EMA rising
+            if (bullPositive && bullRising && emaRising && bearPower[i] > bearPower[i - 1]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Elder Ray: Bull Power positive and rising (Bull=${bullPower[i].toFixed(2)}, Bear=${bearPower[i].toFixed(2)})`
+                });
+            }
+            // Sell: Bear Power < 0, falling, and EMA falling
+            else if (bearNegative && bearFalling && emaFalling && bullPower[i] < bullPower[i - 1]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Elder Ray: Bear Power negative and falling (Bull=${bullPower[i].toFixed(2)}, Bear=${bearPower[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: TRIX ---
+
+registerStrategy({
+    id: 'trix',
+    name: 'TRIX',
+    category: StrategyCategories.MULTI,
+    sourceSection: '7.5',
+    description: 'Buy when TRIX crosses above signal line, sell when below.',
+
+    params: {
+        period: { default: 15, min: 5, max: 30, label: 'TRIX Period' },
+        signalPeriod: { default: 9, min: 3, max: 20, label: 'Signal Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signalPeriod = params.signalPeriod || this.params.signalPeriod.default;
+        const signals = [];
+
+        // Calculate triple smoothed EMA
+        const ema1 = calculateEMA(candles, period);
+
+        // Create candle-like objects for second EMA
+        const ema1Candles = ema1.map(val => ({ close: val }));
+        const ema2 = calculateEMA(ema1Candles, period);
+
+        // Create candle-like objects for third EMA
+        const ema2Candles = ema2.map(val => ({ close: val }));
+        const ema3 = calculateEMA(ema2Candles, period);
+
+        // Calculate TRIX: percentage rate of change of triple EMA
+        const trix = [];
+        for (let i = 0; i < ema3.length; i++) {
+            if (i === 0 || ema3[i] === null || ema3[i - 1] === null || ema3[i - 1] === 0) {
+                trix.push(null);
+            } else {
+                trix.push(((ema3[i] - ema3[i - 1]) / ema3[i - 1]) * 100);
+            }
+        }
+
+        // Calculate signal line (EMA of TRIX)
+        const trixCandles = trix.map(val => ({ close: val === null ? 0 : val }));
+        const trixSignal = calculateEMA(trixCandles, signalPeriod);
+
+        const minPeriod = period * 3 + signalPeriod;
+
+        for (let i = minPeriod; i < candles.length; i++) {
+            if (trix[i] === null || trix[i - 1] === null ||
+                trixSignal[i] === null || trixSignal[i - 1] === null) continue;
+
+            // TRIX crosses above signal line
+            if (trix[i - 1] <= trixSignal[i - 1] && trix[i] > trixSignal[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `TRIX: Crossed above signal line (TRIX=${trix[i].toFixed(4)}, Signal=${trixSignal[i].toFixed(4)})`
+                });
+            }
+            // TRIX crosses below signal line
+            else if (trix[i - 1] >= trixSignal[i - 1] && trix[i] < trixSignal[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `TRIX: Crossed below signal line (TRIX=${trix[i].toFixed(4)}, Signal=${trixSignal[i].toFixed(4)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Vortex Indicator ---
+
+registerStrategy({
+    id: 'vortex',
+    name: 'Vortex Indicator',
+    category: StrategyCategories.MULTI,
+    sourceSection: '7.6',
+    description: 'Buy when VI+ crosses above VI-, sell when opposite.',
+
+    params: {
+        period: { default: 14, min: 5, max: 30, label: 'Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signals = [];
+
+        // Calculate True Range
+        const tr = calculateTrueRange(candles);
+
+        // Calculate +VM and -VM
+        const vmPlus = [];
+        const vmMinus = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i === 0) {
+                vmPlus.push(0);
+                vmMinus.push(0);
+            } else {
+                vmPlus.push(Math.abs(candles[i].high - candles[i - 1].low));
+                vmMinus.push(Math.abs(candles[i].low - candles[i - 1].high));
+            }
+        }
+
+        // Calculate VI+ and VI- (smoothed versions)
+        const viPlus = [];
+        const viMinus = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period) {
+                viPlus.push(null);
+                viMinus.push(null);
+            } else {
+                let sumVMPlus = 0, sumVMMinus = 0, sumTR = 0;
+                for (let j = i - period + 1; j <= i; j++) {
+                    sumVMPlus += vmPlus[j];
+                    sumVMMinus += vmMinus[j];
+                    sumTR += tr[j];
+                }
+                viPlus.push(sumTR > 0 ? sumVMPlus / sumTR : 0);
+                viMinus.push(sumTR > 0 ? sumVMMinus / sumTR : 0);
+            }
+        }
+
+        for (let i = period + 1; i < candles.length; i++) {
+            if (viPlus[i] === null || viPlus[i - 1] === null ||
+                viMinus[i] === null || viMinus[i - 1] === null) continue;
+
+            // VI+ crosses above VI-
+            if (viPlus[i - 1] <= viMinus[i - 1] && viPlus[i] > viMinus[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Vortex: VI+ crossed above VI- (VI+=${viPlus[i].toFixed(3)}, VI-=${viMinus[i].toFixed(3)})`
+                });
+            }
+            // VI+ crosses below VI-
+            else if (viPlus[i - 1] >= viMinus[i - 1] && viPlus[i] < viMinus[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Vortex: VI+ crossed below VI- (VI+=${viPlus[i].toFixed(3)}, VI-=${viMinus[i].toFixed(3)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Ultimate Oscillator ---
+
+registerStrategy({
+    id: 'ultimate',
+    name: 'Ultimate Oscillator',
+    category: StrategyCategories.MULTI,
+    sourceSection: '7.7',
+    description: 'Buy when crosses above 30 with bullish divergence, sell above 70.',
+
+    params: {
+        period1: { default: 7, min: 3, max: 15, label: 'Period 1' },
+        period2: { default: 14, min: 7, max: 30, label: 'Period 2' },
+        period3: { default: 28, min: 14, max: 60, label: 'Period 3' }
+    },
+
+    calculate(candles, params) {
+        const period1 = params.period1 || this.params.period1.default;
+        const period2 = params.period2 || this.params.period2.default;
+        const period3 = params.period3 || this.params.period3.default;
+        const signals = [];
+
+        // Calculate Buying Pressure (BP) and True Range (TR)
+        const bp = [];
+        const tr = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i === 0) {
+                bp.push(candles[i].close - candles[i].low);
+                tr.push(candles[i].high - candles[i].low);
+            } else {
+                const trueLow = Math.min(candles[i].low, candles[i - 1].close);
+                const trueHigh = Math.max(candles[i].high, candles[i - 1].close);
+                bp.push(candles[i].close - trueLow);
+                tr.push(trueHigh - trueLow);
+            }
+        }
+
+        // Calculate Ultimate Oscillator
+        const uo = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period3 - 1) {
+                uo.push(null);
+            } else {
+                let avg1BPSum = 0, avg1TRSum = 0;
+                let avg2BPSum = 0, avg2TRSum = 0;
+                let avg3BPSum = 0, avg3TRSum = 0;
+
+                for (let j = 0; j < period1; j++) {
+                    avg1BPSum += bp[i - j];
+                    avg1TRSum += tr[i - j];
+                }
+                for (let j = 0; j < period2; j++) {
+                    avg2BPSum += bp[i - j];
+                    avg2TRSum += tr[i - j];
+                }
+                for (let j = 0; j < period3; j++) {
+                    avg3BPSum += bp[i - j];
+                    avg3TRSum += tr[i - j];
+                }
+
+                const avg1 = avg1TRSum > 0 ? avg1BPSum / avg1TRSum : 0;
+                const avg2 = avg2TRSum > 0 ? avg2BPSum / avg2TRSum : 0;
+                const avg3 = avg3TRSum > 0 ? avg3BPSum / avg3TRSum : 0;
+
+                // UO = 100 * ((4 * Avg1) + (2 * Avg2) + Avg3) / 7
+                const uoValue = 100 * ((4 * avg1) + (2 * avg2) + avg3) / 7;
+                uo.push(uoValue);
+            }
+        }
+
+        // Track for bullish divergence (price making lower lows while UO making higher lows)
+        for (let i = period3 + 5; i < candles.length; i++) {
+            if (uo[i] === null || uo[i - 1] === null) continue;
+
+            // Buy: UO crosses above 30 (oversold)
+            if (uo[i - 1] <= 30 && uo[i] > 30) {
+                // Check for bullish divergence (simplified: UO rising while near oversold)
+                const uoRising = uo[i] > uo[i - 3];
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Ultimate Oscillator: Crossed above 30${uoRising ? ' with bullish momentum' : ''} (UO=${uo[i].toFixed(1)})`
+                });
+            }
+            // Sell: UO crosses below 70 (overbought)
+            else if (uo[i - 1] >= 70 && uo[i] < 70) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Ultimate Oscillator: Crossed below 70 (UO=${uo[i].toFixed(1)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Mass Index ---
+
+registerStrategy({
+    id: 'mass-index',
+    name: 'Mass Index',
+    category: StrategyCategories.MULTI,
+    sourceSection: '7.8',
+    description: 'Buy/Sell on reversal bulge (index rises above 27 then falls below 26.5).',
+
+    params: {
+        period: { default: 9, min: 5, max: 15, label: 'EMA Period' },
+        emaPeriod: { default: 25, min: 15, max: 35, label: 'Sum Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const emaPeriod = params.emaPeriod || this.params.emaPeriod.default;
+        const signals = [];
+
+        // Calculate High-Low range
+        const hlRange = candles.map(c => c.high - c.low);
+
+        // Calculate EMA of range
+        const hlCandles = hlRange.map(val => ({ close: val }));
+        const ema1 = calculateEMA(hlCandles, period);
+
+        // Calculate EMA of EMA (double smoothed)
+        const ema1Candles = ema1.map(val => ({ close: val === null ? 0 : val }));
+        const ema2 = calculateEMA(ema1Candles, period);
+
+        // Calculate EMA ratio
+        const emaRatio = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (ema1[i] === null || ema2[i] === null || ema2[i] === 0) {
+                emaRatio.push(null);
+            } else {
+                emaRatio.push(ema1[i] / ema2[i]);
+            }
+        }
+
+        // Calculate Mass Index (sum of EMA ratio over emaPeriod)
+        const massIndex = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < emaPeriod + period * 2 - 1) {
+                massIndex.push(null);
+            } else {
+                let sum = 0;
+                let validCount = 0;
+                for (let j = i - emaPeriod + 1; j <= i; j++) {
+                    if (emaRatio[j] !== null) {
+                        sum += emaRatio[j];
+                        validCount++;
+                    }
+                }
+                massIndex.push(validCount > 0 ? sum : null);
+            }
+        }
+
+        // Track bulge state
+        let aboveThreshold = false;
+        let bulgeDirection = null; // 'bullish' or 'bearish'
+
+        for (let i = emaPeriod + period * 2; i < candles.length; i++) {
+            if (massIndex[i] === null || massIndex[i - 1] === null) continue;
+
+            // Check for reversal bulge
+            if (massIndex[i] > 27) {
+                aboveThreshold = true;
+                // Determine direction based on trend
+                const trendUp = candles[i].close > candles[i - 10].close;
+                bulgeDirection = trendUp ? 'bearish' : 'bullish'; // Reversal expected
+            }
+
+            // Signal when mass index falls below 26.5 after being above 27
+            if (aboveThreshold && massIndex[i - 1] >= 26.5 && massIndex[i] < 26.5) {
+                aboveThreshold = false;
+                if (bulgeDirection === 'bullish') {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `Mass Index: Reversal bulge - bullish (Index=${massIndex[i].toFixed(2)})`
+                    });
+                } else if (bulgeDirection === 'bearish') {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `Mass Index: Reversal bulge - bearish (Index=${massIndex[i].toFixed(2)})`
+                    });
+                }
+                bulgeDirection = null;
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Know Sure Thing ---
+
+registerStrategy({
+    id: 'kst',
+    name: 'Know Sure Thing',
+    category: StrategyCategories.MULTI,
+    sourceSection: '7.9',
+    description: 'Buy when KST crosses above signal line, sell when below.',
+
+    params: {
+        roc1: { default: 10, min: 5, max: 20, label: 'ROC 1 Period' },
+        roc2: { default: 15, min: 10, max: 25, label: 'ROC 2 Period' },
+        roc3: { default: 20, min: 15, max: 35, label: 'ROC 3 Period' },
+        roc4: { default: 30, min: 20, max: 50, label: 'ROC 4 Period' }
+    },
+
+    calculate(candles, params) {
+        const roc1 = params.roc1 || this.params.roc1.default;
+        const roc2 = params.roc2 || this.params.roc2.default;
+        const roc3 = params.roc3 || this.params.roc3.default;
+        const roc4 = params.roc4 || this.params.roc4.default;
+        const signals = [];
+
+        // Calculate ROC values
+        function calcROC(candles, period) {
+            const roc = [];
+            for (let i = 0; i < candles.length; i++) {
+                if (i < period || candles[i - period].close === 0) {
+                    roc.push(null);
+                } else {
+                    roc.push(((candles[i].close - candles[i - period].close) / candles[i - period].close) * 100);
+                }
+            }
+            return roc;
+        }
+
+        // Calculate SMA of ROC
+        function calcSMAOfROC(roc, period) {
+            const sma = [];
+            for (let i = 0; i < roc.length; i++) {
+                if (i < period - 1 || roc[i] === null) {
+                    sma.push(null);
+                } else {
+                    let sum = 0;
+                    let count = 0;
+                    for (let j = 0; j < period; j++) {
+                        if (roc[i - j] !== null) {
+                            sum += roc[i - j];
+                            count++;
+                        }
+                    }
+                    sma.push(count > 0 ? sum / count : null);
+                }
+            }
+            return sma;
+        }
+
+        const rocVal1 = calcROC(candles, roc1);
+        const rocVal2 = calcROC(candles, roc2);
+        const rocVal3 = calcROC(candles, roc3);
+        const rocVal4 = calcROC(candles, roc4);
+
+        // Smooth each ROC with SMA (10, 10, 10, 15)
+        const smaRoc1 = calcSMAOfROC(rocVal1, 10);
+        const smaRoc2 = calcSMAOfROC(rocVal2, 10);
+        const smaRoc3 = calcSMAOfROC(rocVal3, 10);
+        const smaRoc4 = calcSMAOfROC(rocVal4, 15);
+
+        // Calculate KST: (RCMA1 * 1) + (RCMA2 * 2) + (RCMA3 * 3) + (RCMA4 * 4)
+        const kst = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (smaRoc1[i] === null || smaRoc2[i] === null ||
+                smaRoc3[i] === null || smaRoc4[i] === null) {
+                kst.push(null);
+            } else {
+                kst.push((smaRoc1[i] * 1) + (smaRoc2[i] * 2) + (smaRoc3[i] * 3) + (smaRoc4[i] * 4));
+            }
+        }
+
+        // Calculate signal line (9-period SMA of KST)
+        const signalLine = [];
+        for (let i = 0; i < kst.length; i++) {
+            if (i < 8 || kst[i] === null) {
+                signalLine.push(null);
+            } else {
+                let sum = 0;
+                let count = 0;
+                for (let j = 0; j < 9; j++) {
+                    if (kst[i - j] !== null) {
+                        sum += kst[i - j];
+                        count++;
+                    }
+                }
+                signalLine.push(count > 0 ? sum / count : null);
+            }
+        }
+
+        const minPeriod = roc4 + 15 + 9;
+
+        for (let i = minPeriod; i < candles.length; i++) {
+            if (kst[i] === null || kst[i - 1] === null ||
+                signalLine[i] === null || signalLine[i - 1] === null) continue;
+
+            // KST crosses above signal line
+            if (kst[i - 1] <= signalLine[i - 1] && kst[i] > signalLine[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `KST: Crossed above signal line (KST=${kst[i].toFixed(2)}, Signal=${signalLine[i].toFixed(2)})`
+                });
+            }
+            // KST crosses below signal line
+            else if (kst[i - 1] >= signalLine[i - 1] && kst[i] < signalLine[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `KST: Crossed below signal line (KST=${kst[i].toFixed(2)}, Signal=${signalLine[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Coppock Curve ---
+
+registerStrategy({
+    id: 'coppock',
+    name: 'Coppock Curve',
+    category: StrategyCategories.MULTI,
+    sourceSection: '7.10',
+    description: 'Buy when Coppock turns up from negative, sell when turns down from positive.',
+
+    params: {
+        roc1: { default: 14, min: 10, max: 20, label: 'ROC 1 Period' },
+        roc2: { default: 11, min: 7, max: 15, label: 'ROC 2 Period' },
+        wmaPeriod: { default: 10, min: 5, max: 20, label: 'WMA Period' }
+    },
+
+    calculate(candles, params) {
+        const roc1Period = params.roc1 || this.params.roc1.default;
+        const roc2Period = params.roc2 || this.params.roc2.default;
+        const wmaPeriod = params.wmaPeriod || this.params.wmaPeriod.default;
+        const signals = [];
+
+        // Calculate ROC values
+        const roc1 = [];
+        const roc2 = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < roc1Period || candles[i - roc1Period].close === 0) {
+                roc1.push(null);
+            } else {
+                roc1.push(((candles[i].close - candles[i - roc1Period].close) / candles[i - roc1Period].close) * 100);
+            }
+
+            if (i < roc2Period || candles[i - roc2Period].close === 0) {
+                roc2.push(null);
+            } else {
+                roc2.push(((candles[i].close - candles[i - roc2Period].close) / candles[i - roc2Period].close) * 100);
+            }
+        }
+
+        // Sum of ROCs
+        const rocSum = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (roc1[i] === null || roc2[i] === null) {
+                rocSum.push(null);
+            } else {
+                rocSum.push(roc1[i] + roc2[i]);
+            }
+        }
+
+        // Calculate WMA (Weighted Moving Average) of ROC sum
+        const coppock = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < roc1Period + wmaPeriod - 1 || rocSum[i] === null) {
+                coppock.push(null);
+            } else {
+                let weightedSum = 0;
+                let weightTotal = 0;
+                for (let j = 0; j < wmaPeriod; j++) {
+                    if (rocSum[i - j] !== null) {
+                        const weight = wmaPeriod - j;
+                        weightedSum += rocSum[i - j] * weight;
+                        weightTotal += weight;
+                    }
+                }
+                coppock.push(weightTotal > 0 ? weightedSum / weightTotal : null);
+            }
+        }
+
+        const minPeriod = Math.max(roc1Period, roc2Period) + wmaPeriod + 1;
+
+        for (let i = minPeriod; i < candles.length; i++) {
+            if (coppock[i] === null || coppock[i - 1] === null || coppock[i - 2] === null) continue;
+
+            const currentNegative = coppock[i] < 0;
+            const currentPositive = coppock[i] > 0;
+            const turningUp = coppock[i] > coppock[i - 1] && coppock[i - 1] <= coppock[i - 2];
+            const turningDown = coppock[i] < coppock[i - 1] && coppock[i - 1] >= coppock[i - 2];
+
+            // Buy: Coppock turns up from negative (classic buy signal)
+            if (currentNegative && turningUp) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Coppock Curve: Turning up from negative (Coppock=${coppock[i].toFixed(2)})`
+                });
+            }
+            // Sell: Coppock turns down from positive
+            else if (currentPositive && turningDown) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Coppock Curve: Turning down from positive (Coppock=${coppock[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
 console.log('Registered strategies:', StrategyRegistry.map(s => s.name));
 
 // ============================================================
