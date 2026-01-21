@@ -3005,6 +3005,444 @@ registerStrategy({
     }
 });
 
+// ============================================================
+// VOLATILITY STRATEGIES
+// ============================================================
+
+// --- Helper: Calculate ATR (Average True Range) ---
+
+function calculateATR(candles, period) {
+    const trueRange = calculateTrueRange(candles);
+    const atr = [];
+
+    for (let i = 0; i < candles.length; i++) {
+        if (i < period - 1) {
+            atr.push(null);
+        } else if (i === period - 1) {
+            // First ATR is simple average of first 'period' TR values
+            let sum = 0;
+            for (let j = 0; j < period; j++) {
+                sum += trueRange[j];
+            }
+            atr.push(sum / period);
+        } else {
+            // Subsequent ATR uses Wilder's smoothing: ATR = ((prevATR * (period-1)) + TR) / period
+            atr.push(((atr[i - 1] * (period - 1)) + trueRange[i]) / period);
+        }
+    }
+    return atr;
+}
+
+// --- Strategy: ATR Trailing Stop ---
+
+registerStrategy({
+    id: 'atr-stop',
+    name: 'ATR Trailing Stop',
+    category: StrategyCategories.VOLATILITY,
+    sourceSection: '5.1',
+    description: 'Buy when price is above ATR trailing stop, sell when below.',
+
+    params: {
+        period: { default: 14, min: 5, max: 50, label: 'ATR Period' },
+        multiplier: { default: 2, min: 1, max: 5, step: 0.5, label: 'Multiplier' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const multiplier = params.multiplier || this.params.multiplier.default;
+        const signals = [];
+
+        const atr = calculateATR(candles, period);
+
+        // Calculate trailing stop levels
+        const trailingStop = [];
+        let isLong = true; // Start assuming long position
+
+        for (let i = 0; i < candles.length; i++) {
+            if (atr[i] === null) {
+                trailingStop.push(null);
+                continue;
+            }
+
+            // Calculate potential stop levels
+            const longStop = candles[i].high - (atr[i] * multiplier);
+            const shortStop = candles[i].low + (atr[i] * multiplier);
+
+            if (i === period - 1) {
+                // Initialize based on price position relative to a neutral point
+                trailingStop.push(isLong ? longStop : shortStop);
+                continue;
+            }
+
+            const prevStop = trailingStop[i - 1];
+
+            if (isLong) {
+                // In uptrend: stop can only move up, never down
+                const newStop = Math.max(prevStop, longStop);
+
+                // Check if price closed below stop (switch to short)
+                if (candles[i].close < prevStop) {
+                    isLong = false;
+                    trailingStop.push(shortStop);
+                } else {
+                    trailingStop.push(newStop);
+                }
+            } else {
+                // In downtrend: stop can only move down, never up
+                const newStop = Math.min(prevStop, shortStop);
+
+                // Check if price closed above stop (switch to long)
+                if (candles[i].close > prevStop) {
+                    isLong = true;
+                    trailingStop.push(longStop);
+                } else {
+                    trailingStop.push(newStop);
+                }
+            }
+        }
+
+        // Generate signals on stop level crossovers
+        let prevIsLong = null;
+        for (let i = period; i < candles.length; i++) {
+            if (trailingStop[i] === null || trailingStop[i - 1] === null) continue;
+
+            const wasAboveStop = candles[i - 1].close > trailingStop[i - 1];
+            const isAboveStop = candles[i].close > trailingStop[i];
+
+            // Crossed above trailing stop (buy)
+            if (!wasAboveStop && isAboveStop) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Price crossed above ATR trailing stop (ATR=${atr[i].toFixed(2)}, Stop=${trailingStop[i].toFixed(2)})`
+                });
+            }
+            // Crossed below trailing stop (sell)
+            else if (wasAboveStop && !isAboveStop) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Price crossed below ATR trailing stop (ATR=${atr[i].toFixed(2)}, Stop=${trailingStop[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Keltner Channel ---
+
+registerStrategy({
+    id: 'keltner',
+    name: 'Keltner Channel',
+    category: StrategyCategories.VOLATILITY,
+    sourceSection: '5.2',
+    description: 'Buy when price breaks below lower channel (oversold), sell above upper (overbought).',
+
+    params: {
+        period: { default: 20, min: 5, max: 50, label: 'EMA Period' },
+        atrMultiplier: { default: 2, min: 1, max: 4, step: 0.5, label: 'ATR Multiplier' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const atrMultiplier = params.atrMultiplier || this.params.atrMultiplier.default;
+        const signals = [];
+
+        // Calculate EMA (middle line)
+        const ema = calculateEMA(candles, period);
+
+        // Calculate ATR
+        const atr = calculateATR(candles, period);
+
+        // Calculate upper and lower channels
+        const upperChannel = [];
+        const lowerChannel = [];
+
+        for (let i = 0; i < candles.length; i++) {
+            if (ema[i] === null || atr[i] === null) {
+                upperChannel.push(null);
+                lowerChannel.push(null);
+            } else {
+                upperChannel.push(ema[i] + (atr[i] * atrMultiplier));
+                lowerChannel.push(ema[i] - (atr[i] * atrMultiplier));
+            }
+        }
+
+        // Generate signals on channel breakouts
+        for (let i = 1; i < candles.length; i++) {
+            if (upperChannel[i] === null || lowerChannel[i] === null ||
+                upperChannel[i - 1] === null || lowerChannel[i - 1] === null) continue;
+
+            const prevClose = candles[i - 1].close;
+            const currClose = candles[i].close;
+
+            // Price crossed below lower channel (oversold - buy signal)
+            if (prevClose >= lowerChannel[i - 1] && currClose < lowerChannel[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Price broke below Keltner lower channel (${lowerChannel[i].toFixed(2)}) - oversold`
+                });
+            }
+            // Price crossed above upper channel (overbought - sell signal)
+            else if (prevClose <= upperChannel[i - 1] && currClose > upperChannel[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Price broke above Keltner upper channel (${upperChannel[i].toFixed(2)}) - overbought`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Volatility Breakout ---
+
+registerStrategy({
+    id: 'vol-breakout',
+    name: 'Volatility Breakout',
+    category: StrategyCategories.VOLATILITY,
+    sourceSection: '5.3',
+    description: 'Buy on high volatility breakout upward, sell on downward.',
+
+    params: {
+        period: { default: 20, min: 5, max: 50, label: 'Period' },
+        threshold: { default: 1.5, min: 1, max: 3, step: 0.1, label: 'Threshold' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const threshold = params.threshold || this.params.threshold.default;
+        const signals = [];
+
+        // Calculate current range for each candle
+        const ranges = candles.map(c => c.high - c.low);
+
+        // Calculate average range over period
+        const avgRange = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period - 1) {
+                avgRange.push(null);
+            } else {
+                let sum = 0;
+                for (let j = 0; j < period; j++) {
+                    sum += ranges[i - j];
+                }
+                avgRange.push(sum / period);
+            }
+        }
+
+        // Generate signals when current range exceeds average by threshold
+        for (let i = period; i < candles.length; i++) {
+            if (avgRange[i - 1] === null) continue;
+
+            const currentRange = ranges[i];
+            const avgRangePrev = avgRange[i - 1]; // Use previous avg to avoid look-ahead bias
+            const rangeRatio = currentRange / avgRangePrev;
+
+            // Check if volatility breakout occurred
+            if (rangeRatio >= threshold) {
+                // Determine direction of the move
+                const priceChange = candles[i].close - candles[i].open;
+
+                if (priceChange > 0) {
+                    // Upward breakout (buy signal)
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `Volatility breakout upward: range ${rangeRatio.toFixed(2)}x average`
+                    });
+                } else if (priceChange < 0) {
+                    // Downward breakout (sell signal)
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `Volatility breakout downward: range ${rangeRatio.toFixed(2)}x average`
+                    });
+                }
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: ATR Channel Breakout ---
+
+registerStrategy({
+    id: 'atr-channel',
+    name: 'ATR Channel Breakout',
+    category: StrategyCategories.VOLATILITY,
+    sourceSection: '5.4',
+    description: 'Buy when price closes above upper ATR channel, sell below lower.',
+
+    params: {
+        period: { default: 14, min: 5, max: 50, label: 'Period' },
+        multiplier: { default: 2, min: 1, max: 4, step: 0.5, label: 'Multiplier' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const multiplier = params.multiplier || this.params.multiplier.default;
+        const signals = [];
+
+        // Calculate SMA
+        const sma = calculateSMA(candles, period);
+
+        // Calculate ATR
+        const atr = calculateATR(candles, period);
+
+        // Calculate upper and lower channels
+        const upperChannel = [];
+        const lowerChannel = [];
+
+        for (let i = 0; i < candles.length; i++) {
+            if (sma[i] === null || atr[i] === null) {
+                upperChannel.push(null);
+                lowerChannel.push(null);
+            } else {
+                upperChannel.push(sma[i] + (atr[i] * multiplier));
+                lowerChannel.push(sma[i] - (atr[i] * multiplier));
+            }
+        }
+
+        // Generate signals on channel breakouts
+        for (let i = 1; i < candles.length; i++) {
+            if (upperChannel[i] === null || lowerChannel[i] === null ||
+                upperChannel[i - 1] === null || lowerChannel[i - 1] === null) continue;
+
+            const prevClose = candles[i - 1].close;
+            const currClose = candles[i].close;
+
+            // Price crossed above upper channel (buy signal - bullish breakout)
+            if (prevClose <= upperChannel[i - 1] && currClose > upperChannel[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Price broke above ATR channel (Upper=${upperChannel[i].toFixed(2)})`
+                });
+            }
+            // Price crossed below lower channel (sell signal - bearish breakout)
+            else if (prevClose >= lowerChannel[i - 1] && currClose < lowerChannel[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Price broke below ATR channel (Lower=${lowerChannel[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Volatility Contraction ---
+
+registerStrategy({
+    id: 'vol-contraction',
+    name: 'Volatility Contraction',
+    category: StrategyCategories.VOLATILITY,
+    sourceSection: '5.5',
+    description: 'Buy after volatility contraction followed by expansion upward.',
+
+    params: {
+        period: { default: 14, min: 5, max: 50, label: 'ATR Period' },
+        contractionPeriod: { default: 5, min: 2, max: 10, label: 'Contraction Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const contractionPeriod = params.contractionPeriod || this.params.contractionPeriod.default;
+        const signals = [];
+
+        // Calculate ATR
+        const atr = calculateATR(candles, period);
+
+        // Calculate ATR SMA for baseline comparison
+        const atrSMA = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period + contractionPeriod - 1 || atr[i] === null) {
+                atrSMA.push(null);
+            } else {
+                let sum = 0;
+                let count = 0;
+                for (let j = 0; j < contractionPeriod; j++) {
+                    if (atr[i - j] !== null) {
+                        sum += atr[i - j];
+                        count++;
+                    }
+                }
+                atrSMA.push(count > 0 ? sum / count : null);
+            }
+        }
+
+        // Detect contraction: Check if ATR has been declining over contractionPeriod
+        const isContracting = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period + contractionPeriod - 1 || atr[i] === null) {
+                isContracting.push(false);
+                continue;
+            }
+
+            // Check if ATR has been consistently declining
+            let declining = true;
+            for (let j = 1; j < contractionPeriod; j++) {
+                if (atr[i - j] === null || atr[i - j + 1] === null ||
+                    atr[i - j] <= atr[i - j + 1]) {
+                    declining = false;
+                    break;
+                }
+            }
+            isContracting.push(declining);
+        }
+
+        // Generate signals: contraction followed by expansion with price direction
+        for (let i = period + contractionPeriod; i < candles.length; i++) {
+            if (atr[i] === null || atr[i - 1] === null || !isContracting[i - 1]) continue;
+
+            // Check for expansion: current ATR > previous ATR
+            const isExpanding = atr[i] > atr[i - 1];
+
+            if (isExpanding) {
+                // Determine direction of the breakout
+                const priceChange = candles[i].close - candles[i - 1].close;
+
+                if (priceChange > 0) {
+                    // Upward expansion after contraction (buy signal)
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `Volatility expansion upward after contraction (ATR=${atr[i].toFixed(2)})`
+                    });
+                } else if (priceChange < 0) {
+                    // Downward expansion after contraction (sell signal)
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `Volatility expansion downward after contraction (ATR=${atr[i].toFixed(2)})`
+                    });
+                }
+            }
+        }
+
+        return signals;
+    }
+});
+
 console.log('Registered strategies:', StrategyRegistry.map(s => s.name));
 
 // ============================================================
