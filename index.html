@@ -838,6 +838,22 @@ const UIController = {
             AppState.setTimeframe(newTimeframe);
         });
     },
+
+    initThresholdSlider() {
+        const slider = document.getElementById('threshold-slider');
+        const valueDisplay = document.getElementById('threshold-value');
+
+        // Set initial value
+        slider.value = CONFIG.defaultThreshold;
+        valueDisplay.textContent = CONFIG.defaultThreshold;
+
+        // Handle changes
+        slider.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            valueDisplay.textContent = value;
+            AppState.setThreshold(value);
+        });
+    },
 };
 
 // Listen to connection state changes
@@ -864,6 +880,18 @@ const AppState = {
     async setSymbol(sym) {
         this.symbol = sym;
         await this.reload();
+    },
+
+    setThreshold(value) {
+        this.threshold = value;
+        console.log('Threshold set to:', value);
+        // Recalculate confluence (implemented later)
+        this.recalculateSignals();
+    },
+
+    recalculateSignals() {
+        // Placeholder - will be implemented with strategies
+        console.log('Recalculating signals...');
     },
 
     async reload() {
@@ -910,6 +938,7 @@ async function initApp() {
 
     ChartManager.init();
     UIController.initTimeframeSelect();
+    UIController.initThresholdSlider();
     await UIController.initSymbolSelect();
 
     await AppState.reload();
