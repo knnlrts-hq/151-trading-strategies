@@ -1102,6 +1102,51 @@ const UIController = {
 
     initSettingsPanel() {
         document.getElementById('settings-close').onclick = () => this.closeSettingsPanel();
+    },
+
+    initExportButton() {
+        document.getElementById('export-csv-btn').onclick = () => this.exportCSV();
+    },
+
+    exportCSV() {
+        const rows = [['Time', 'Strategy', 'Type', 'Price', 'Reason']];
+
+        for (const [slot, config] of Object.entries(AppState.activeStrategies)) {
+            const strategy = getStrategyById(config.id);
+            if (!strategy) continue;
+
+            for (const signal of config.signals) {
+                const candle = AppState.candles.find(c => c.time === signal.time);
+                const price = candle ? candle.close : 'N/A';
+
+                rows.push([
+                    new Date(signal.time * 1000).toISOString(),
+                    strategy.name,
+                    signal.type,
+                    price,
+                    signal.reason || ''
+                ]);
+            }
+        }
+
+        // Sort by time
+        rows.slice(1).sort((a, b) => new Date(a[0]) - new Date(b[0]));
+
+        // Convert to CSV
+        const csv = rows.map(row =>
+            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+
+        // Download
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `signals_${AppState.symbol}_${AppState.timeframe}_${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        ToastManager.success('CSV exported');
     }
 };
 
@@ -1716,6 +1761,7 @@ async function initApp() {
     UIController.initSignalLog();
     UIController.initStrategySelectors();
     UIController.initSettingsPanel();
+    UIController.initExportButton();
     await UIController.initSymbolSelect();
 
     await AppState.reload();
