@@ -934,9 +934,58 @@ const UIController = {
     }
 };
 
+// ============================================================
+// SECTION 7: TOAST MANAGER
+// ============================================================
+
+const ToastManager = {
+    container: null,
+
+    init() {
+        this.container = document.getElementById('toast-container');
+    },
+
+    show(message, type = 'info', duration = 3000) {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+
+        this.container.appendChild(toast);
+
+        if (duration > 0) {
+            setTimeout(() => {
+                toast.remove();
+            }, duration);
+        }
+
+        return toast; // Return for manual removal
+    },
+
+    success(message, duration) {
+        return this.show('✓ ' + message, 'success', duration);
+    },
+
+    error(message, duration) {
+        return this.show('✗ ' + message, 'error', duration);
+    },
+
+    warning(message, duration) {
+        return this.show('⚠ ' + message, 'warning', duration);
+    }
+};
+
 // Listen to connection state changes
 onConnectionStateChange((state) => {
     UIController.updateStatus(state);
+
+    // Show toasts for state changes
+    if (state === ConnectionState.CONNECTED) {
+        ToastManager.success('Connected to Hyperliquid');
+    } else if (state === ConnectionState.RECONNECTING) {
+        ToastManager.warning('Connection lost, reconnecting...', 0);
+    } else if (state === ConnectionState.DISCONNECTED) {
+        ToastManager.error('Disconnected. Check your network.', 0);
+    }
 });
 
 // ============================================================
@@ -1014,6 +1063,7 @@ const AppState = {
 async function initApp() {
     console.log('Initializing app...');
 
+    ToastManager.init();
     ChartManager.init();
     UIController.initTimeframeSelect();
     UIController.initThresholdSlider();
