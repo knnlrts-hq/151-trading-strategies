@@ -4388,6 +4388,613 @@ registerStrategy({
     }
 });
 
+// ============================================================
+// SECTION 9.7: OPTIONS-ADAPTED STRATEGIES (Part 2)
+// These are options strategies adapted for spot/futures trading
+// ============================================================
+
+// --- Strategy: Long Put ---
+
+registerStrategy({
+    id: 'long-put',
+    name: 'Long Put',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.11',
+    description: 'Sell on strong bearish signal (death cross + RSI weakness).',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        fastMa: { default: 10, min: 5, max: 20, label: 'Fast MA Period' },
+        slowMa: { default: 30, min: 20, max: 50, label: 'Slow MA Period' }
+    },
+
+    calculate(candles, params) {
+        const fastMa = params.fastMa || this.params.fastMa.default;
+        const slowMa = params.slowMa || this.params.slowMa.default;
+        const signals = [];
+
+        const fastSMA = calculateSMA(candles, fastMa);
+        const slowSMA = calculateSMA(candles, slowMa);
+        const rsi = calculateRSI(candles, 14);
+
+        for (let i = slowMa + 1; i < candles.length; i++) {
+            if (fastSMA[i] === null || fastSMA[i - 1] === null ||
+                slowSMA[i] === null || slowSMA[i - 1] === null ||
+                rsi[i] === null) continue;
+
+            // Death cross: fast MA crosses below slow MA
+            const deathCross = fastSMA[i - 1] >= slowSMA[i - 1] && fastSMA[i] < slowSMA[i];
+
+            // RSI weakness: RSI below 50 and falling
+            const rsiWeakness = rsi[i] < 50 && rsi[i] < rsi[i - 1];
+
+            // Sell: Death cross with RSI weakness confirmation
+            if (deathCross && rsiWeakness) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Long Put: Death cross + RSI weakness (Fast=${fastSMA[i].toFixed(2)}, Slow=${slowSMA[i].toFixed(2)}, RSI=${rsi[i].toFixed(1)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Butterfly Spread ---
+
+registerStrategy({
+    id: 'butterfly',
+    name: 'Butterfly Spread',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.12',
+    description: 'Signals when price is range-bound near a central level.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        period: { default: 20, min: 10, max: 50, label: 'Lookback Period' },
+        tolerance: { default: 0.02, min: 0.005, max: 0.05, step: 0.005, label: 'Tolerance (%)' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const tolerance = params.tolerance || this.params.tolerance.default;
+        const signals = [];
+
+        const sma = calculateSMA(candles, period);
+
+        for (let i = period + 1; i < candles.length; i++) {
+            if (sma[i] === null) continue;
+
+            // Calculate high and low of the period
+            let periodHigh = -Infinity;
+            let periodLow = Infinity;
+            for (let j = i - period; j < i; j++) {
+                periodHigh = Math.max(periodHigh, candles[j].high);
+                periodLow = Math.min(periodLow, candles[j].low);
+            }
+
+            const range = periodHigh - periodLow;
+            const centralLevel = (periodHigh + periodLow) / 2;
+
+            // Check if price is near central level (within tolerance of range)
+            const distFromCenter = Math.abs(candles[i].close - centralLevel);
+            const isNearCenter = distFromCenter < range * tolerance * 10; // Scale tolerance
+
+            // Check if range is relatively small (range-bound market)
+            const avgPrice = sma[i];
+            const rangePercent = range / avgPrice;
+            const isRangeBound = rangePercent < 0.1; // Range less than 10% of average price
+
+            if (isNearCenter && isRangeBound) {
+                // In butterfly, profit from price staying near center
+                // Buy at lower half, sell at upper half
+                if (candles[i].close < centralLevel) {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `Butterfly Spread: Range-bound, price at lower half (Center=${centralLevel.toFixed(2)}, Close=${candles[i].close.toFixed(2)})`
+                    });
+                } else {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `Butterfly Spread: Range-bound, price at upper half (Center=${centralLevel.toFixed(2)}, Close=${candles[i].close.toFixed(2)})`
+                    });
+                }
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Calendar Spread ---
+
+registerStrategy({
+    id: 'calendar',
+    name: 'Calendar Spread',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.13',
+    description: 'Buy/Sell on time-based mean reversion (price far from moving average).',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        shortMa: { default: 10, min: 5, max: 20, label: 'Short MA Period' },
+        longMa: { default: 50, min: 30, max: 100, label: 'Long MA Period' }
+    },
+
+    calculate(candles, params) {
+        const shortMa = params.shortMa || this.params.shortMa.default;
+        const longMa = params.longMa || this.params.longMa.default;
+        const signals = [];
+
+        const shortSMA = calculateSMA(candles, shortMa);
+        const longSMA = calculateSMA(candles, longMa);
+        const atr = calculateATR(candles, 14);
+
+        for (let i = longMa + 1; i < candles.length; i++) {
+            if (shortSMA[i] === null || longSMA[i] === null || atr[i] === null) continue;
+
+            // Calculate deviation from long MA
+            const deviation = candles[i].close - longSMA[i];
+            const deviationATR = Math.abs(deviation) / atr[i];
+
+            // Mean reversion signals when price is far from long MA
+            if (deviationATR > 2) {
+                if (deviation < 0) {
+                    // Price significantly below long MA - expect reversion up
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `Calendar Spread: Price far below MA, expect reversion (Dev=${deviationATR.toFixed(1)} ATR, LongMA=${longSMA[i].toFixed(2)})`
+                    });
+                } else {
+                    // Price significantly above long MA - expect reversion down
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `Calendar Spread: Price far above MA, expect reversion (Dev=${deviationATR.toFixed(1)} ATR, LongMA=${longSMA[i].toFixed(2)})`
+                    });
+                }
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Diagonal Spread ---
+
+registerStrategy({
+    id: 'diagonal',
+    name: 'Diagonal Spread',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.14',
+    description: 'Buy on bullish trend with mean reversion entry.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        trendMa: { default: 50, min: 30, max: 100, label: 'Trend MA Period' },
+        entryMa: { default: 10, min: 5, max: 20, label: 'Entry MA Period' }
+    },
+
+    calculate(candles, params) {
+        const trendMa = params.trendMa || this.params.trendMa.default;
+        const entryMa = params.entryMa || this.params.entryMa.default;
+        const signals = [];
+
+        const trendSMA = calculateSMA(candles, trendMa);
+        const entrySMA = calculateSMA(candles, entryMa);
+
+        for (let i = trendMa + 1; i < candles.length; i++) {
+            if (trendSMA[i] === null || trendSMA[i - 1] === null ||
+                entrySMA[i] === null || entrySMA[i - 1] === null) continue;
+
+            // Check for bullish trend: price above trend MA and trend MA rising
+            const bullishTrend = candles[i].close > trendSMA[i] && trendSMA[i] > trendSMA[i - 1];
+
+            // Mean reversion entry: price dips to or below entry MA
+            const meanReversionEntry = candles[i - 1].close > entrySMA[i - 1] && candles[i].close <= entrySMA[i];
+
+            // Buy on mean reversion entry in bullish trend
+            if (bullishTrend && meanReversionEntry) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Diagonal Spread: Bullish trend + mean reversion entry (TrendMA=${trendSMA[i].toFixed(2)}, EntryMA=${entrySMA[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Strangle ---
+
+registerStrategy({
+    id: 'strangle',
+    name: 'Strangle',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.15',
+    description: 'Buy on volatility breakout after compression.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        period: { default: 20, min: 10, max: 50, label: 'Lookback Period' },
+        squeezeBars: { default: 6, min: 3, max: 10, label: 'Squeeze Bars' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const squeezeBars = params.squeezeBars || this.params.squeezeBars.default;
+        const signals = [];
+
+        const atr = calculateATR(candles, period);
+
+        // Calculate ATR average for compression detection
+        const atrAvg = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period * 2 - 1 || atr[i] === null) {
+                atrAvg.push(null);
+            } else {
+                let sum = 0;
+                for (let j = 0; j < period; j++) {
+                    sum += atr[i - j];
+                }
+                atrAvg.push(sum / period);
+            }
+        }
+
+        for (let i = period * 2 + squeezeBars; i < candles.length; i++) {
+            if (atr[i] === null || atrAvg[i] === null) continue;
+
+            // Check for squeeze: ATR below average for squeezeBars consecutive bars
+            let squeezeCount = 0;
+            for (let j = 1; j <= squeezeBars; j++) {
+                if (atr[i - j] !== null && atrAvg[i - j] !== null && atr[i - j] < atrAvg[i - j] * 0.75) {
+                    squeezeCount++;
+                }
+            }
+
+            const wasInSqueeze = squeezeCount >= squeezeBars - 1;
+
+            // Current bar breaks out of squeeze
+            const breakout = atr[i] > atrAvg[i];
+
+            if (wasInSqueeze && breakout) {
+                // Determine direction based on price movement
+                const priceChange = candles[i].close - candles[i - squeezeBars].close;
+
+                if (priceChange > 0) {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `Strangle: Volatility breakout bullish after ${squeezeBars}-bar squeeze (ATR=${atr[i].toFixed(4)})`
+                    });
+                } else {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `Strangle: Volatility breakout bearish after ${squeezeBars}-bar squeeze (ATR=${atr[i].toFixed(4)})`
+                    });
+                }
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Ratio Spread ---
+
+registerStrategy({
+    id: 'ratio-spread',
+    name: 'Ratio Spread',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.16',
+    description: 'Buy when bullish but with caution (moderate signals only).',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        rsiPeriod: { default: 14, min: 5, max: 30, label: 'RSI Period' },
+        threshold: { default: 50, min: 40, max: 60, label: 'RSI Threshold' }
+    },
+
+    calculate(candles, params) {
+        const rsiPeriod = params.rsiPeriod || this.params.rsiPeriod.default;
+        const threshold = params.threshold || this.params.threshold.default;
+        const signals = [];
+
+        const rsi = calculateRSI(candles, rsiPeriod);
+        const sma = calculateSMA(candles, 20);
+
+        for (let i = Math.max(rsiPeriod, 20) + 1; i < candles.length; i++) {
+            if (rsi[i] === null || rsi[i - 1] === null || sma[i] === null) continue;
+
+            // Look for moderate bullish signals (not too strong, not too weak)
+            const priceAboveMA = candles[i].close > sma[i];
+            const rsiModerate = rsi[i] > threshold && rsi[i] < 65; // Moderate bullish zone
+            const rsiRising = rsi[i] > rsi[i - 1];
+
+            // Buy on moderate bullish conditions
+            if (priceAboveMA && rsiModerate && rsiRising) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Ratio Spread: Moderate bullish signal (RSI=${rsi[i].toFixed(1)}, above MA=${sma[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Box Spread ---
+
+registerStrategy({
+    id: 'box-spread',
+    name: 'Box Spread',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.17',
+    description: 'Arbitrage-like signals when price reverts to mean.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        period: { default: 20, min: 10, max: 50, label: 'BB Period' },
+        stdDev: { default: 2, min: 1, max: 3, step: 0.5, label: 'Std Dev Multiplier' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const stdDev = params.stdDev || this.params.stdDev.default;
+        const signals = [];
+
+        const bb = calculateBollingerBands(candles, period, stdDev);
+
+        for (let i = period + 1; i < candles.length; i++) {
+            if (bb.upper[i] === null || bb.lower[i] === null || bb.middle[i] === null) continue;
+
+            const prevClose = candles[i - 1].close;
+            const currClose = candles[i].close;
+
+            // Arbitrage-like: price reverts from extreme to middle band
+            const wasAtLower = prevClose <= bb.lower[i - 1];
+            const crossedAboveLower = prevClose < bb.middle[i - 1] && currClose >= bb.lower[i];
+            const movingTowardMiddle = currClose > prevClose && currClose < bb.middle[i];
+
+            const wasAtUpper = prevClose >= bb.upper[i - 1];
+            const crossedBelowUpper = prevClose > bb.middle[i - 1] && currClose <= bb.upper[i];
+            const movingTowardMiddleDown = currClose < prevClose && currClose > bb.middle[i];
+
+            // Buy when price reverts up from lower band
+            if (wasAtLower && movingTowardMiddle) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Box Spread: Mean reversion from lower BB (Close=${currClose.toFixed(2)}, Lower=${bb.lower[i].toFixed(2)})`
+                });
+            }
+            // Sell when price reverts down from upper band
+            else if (wasAtUpper && movingTowardMiddleDown) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Box Spread: Mean reversion from upper BB (Close=${currClose.toFixed(2)}, Upper=${bb.upper[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Jade Lizard ---
+
+registerStrategy({
+    id: 'jade-lizard',
+    name: 'Jade Lizard',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.18',
+    description: 'Buy on bullish trend with volatility sell premium.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        maPeriod: { default: 20, min: 10, max: 50, label: 'MA Period' },
+        atrPeriod: { default: 14, min: 5, max: 30, label: 'ATR Period' }
+    },
+
+    calculate(candles, params) {
+        const maPeriod = params.maPeriod || this.params.maPeriod.default;
+        const atrPeriod = params.atrPeriod || this.params.atrPeriod.default;
+        const signals = [];
+
+        const sma = calculateSMA(candles, maPeriod);
+        const atr = calculateATR(candles, atrPeriod);
+
+        // Calculate ATR average
+        const atrAvg = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < atrPeriod * 2 - 1 || atr[i] === null) {
+                atrAvg.push(null);
+            } else {
+                let sum = 0;
+                for (let j = 0; j < atrPeriod; j++) {
+                    sum += atr[i - j];
+                }
+                atrAvg.push(sum / atrPeriod);
+            }
+        }
+
+        const minPeriod = Math.max(maPeriod, atrPeriod * 2);
+
+        for (let i = minPeriod + 1; i < candles.length; i++) {
+            if (sma[i] === null || sma[i - 1] === null || atr[i] === null || atrAvg[i] === null) continue;
+
+            // Bullish trend: price above rising MA
+            const bullishTrend = candles[i].close > sma[i] && sma[i] > sma[i - 1];
+
+            // Low volatility: ATR below average (sell premium opportunity)
+            const lowVolatility = atr[i] < atrAvg[i];
+
+            // Buy on bullish trend with low volatility
+            if (bullishTrend && lowVolatility) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Jade Lizard: Bullish trend + low volatility (MA=${sma[i].toFixed(2)}, ATR=${atr[i].toFixed(4)} < Avg=${atrAvg[i].toFixed(4)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Iron Butterfly ---
+
+registerStrategy({
+    id: 'iron-butterfly',
+    name: 'Iron Butterfly',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.19',
+    description: 'Range signals when volatility contracts and price near pivot.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        period: { default: 14, min: 5, max: 30, label: 'Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signals = [];
+
+        const atr = calculateATR(candles, period);
+
+        // Calculate ATR average
+        const atrAvg = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < period * 2 - 1 || atr[i] === null) {
+                atrAvg.push(null);
+            } else {
+                let sum = 0;
+                for (let j = 0; j < period; j++) {
+                    sum += atr[i - j];
+                }
+                atrAvg.push(sum / period);
+            }
+        }
+
+        for (let i = period * 2; i < candles.length; i++) {
+            if (atr[i] === null || atrAvg[i] === null) continue;
+
+            // Calculate pivot (typical price of previous bar)
+            const pivot = (candles[i - 1].high + candles[i - 1].low + candles[i - 1].close) / 3;
+
+            // Volatility contraction
+            const volContraction = atr[i] < atrAvg[i] * 0.8;
+
+            // Price near pivot
+            const distFromPivot = Math.abs(candles[i].close - pivot);
+            const nearPivot = distFromPivot < atr[i];
+
+            if (volContraction && nearPivot) {
+                // Range trading: buy below pivot, sell above pivot
+                if (candles[i].close < pivot) {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `Iron Butterfly: Vol contraction, price below pivot (Pivot=${pivot.toFixed(2)}, Close=${candles[i].close.toFixed(2)})`
+                    });
+                } else {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `Iron Butterfly: Vol contraction, price above pivot (Pivot=${pivot.toFixed(2)}, Close=${candles[i].close.toFixed(2)})`
+                    });
+                }
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Cash Secured Put ---
+
+registerStrategy({
+    id: 'cash-put',
+    name: 'Cash Secured Put',
+    category: StrategyCategories.OPTIONS,
+    sourceSection: '6.20',
+    description: 'Buy at support levels in uptrend.',
+    warning: 'Adapted from options strategy. Original requires strike prices and expirations.',
+
+    params: {
+        maPeriod: { default: 50, min: 20, max: 100, label: 'MA Period' },
+        lookback: { default: 20, min: 10, max: 50, label: 'Support Lookback' }
+    },
+
+    calculate(candles, params) {
+        const maPeriod = params.maPeriod || this.params.maPeriod.default;
+        const lookback = params.lookback || this.params.lookback.default;
+        const signals = [];
+
+        const sma = calculateSMA(candles, maPeriod);
+
+        const minPeriod = Math.max(maPeriod, lookback);
+
+        for (let i = minPeriod + 1; i < candles.length; i++) {
+            if (sma[i] === null || sma[i - 1] === null) continue;
+
+            // Check for uptrend: price above rising MA
+            const uptrend = candles[i].close > sma[i] && sma[i] > sma[i - 1];
+
+            if (!uptrend) continue;
+
+            // Find support level (lowest low in lookback period)
+            let support = Infinity;
+            for (let j = i - lookback; j < i; j++) {
+                support = Math.min(support, candles[j].low);
+            }
+
+            // Check if current price is near support
+            const tolerance = (candles[i].high - candles[i].low) * 2;
+            const nearSupport = candles[i].low <= support + tolerance;
+            const bouncing = candles[i].close > candles[i].open; // Bullish candle
+
+            // Buy at support in uptrend
+            if (nearSupport && bouncing) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Cash Secured Put: Buy at support in uptrend (Support=${support.toFixed(2)}, MA=${sma[i].toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
 console.log('Registered strategies:', StrategyRegistry.map(s => s.name));
 
 // ============================================================
