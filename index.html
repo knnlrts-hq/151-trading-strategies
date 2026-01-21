@@ -69,6 +69,8 @@
             padding: 10px 16px;
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border-color);
+            position: relative;
+            z-index: 100;
         }
 
         .control-group {
@@ -111,6 +113,10 @@
             border-color: var(--accent-blue);
         }
 
+        #symbol-select {
+            min-width: 120px;
+        }
+
         /* ========== Strategy Slots ========== */
         .strategy-slots {
             display: flex;
@@ -125,7 +131,7 @@
         }
 
         .strategy-select {
-            min-width: 160px;
+            min-width: 240px;
         }
 
         .settings-btn {
@@ -368,6 +374,7 @@
             border-color: var(--border-color);
             min-height: 38px;
             padding: 4px 8px;
+            min-width: 200px;
         }
 
         .choices__list--single {
@@ -377,7 +384,9 @@
         .choices__list--dropdown {
             background: var(--bg-secondary);
             border-color: var(--border-color);
-            z-index: 100;
+            z-index: 200;
+            min-width: 240px;
+            width: auto !important;
         }
 
         .choices__list--dropdown .choices__item--selectable.is-highlighted {
