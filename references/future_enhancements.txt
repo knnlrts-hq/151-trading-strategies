@@ -1,0 +1,42 @@
+Why 59 Strategies Instead of 151
+The "151 Trading Strategies" paper by Kakushadze and Serur covers strategies across many asset classes, most of which require data not available from Hyperliquid's OHLCV API:
+
+Asset Classes in the Paper (with approximate strategy counts)
+Section	Asset Class	Strategies	Data Requirements
+2	Options	~56	Strike prices, expirations, Greeks, option chains
+3	Stocks	~21	Earnings data, fundamentals, multiple stocks for pairs
+4	ETFs	~8	Sector data, multiple ETF prices, benchmark data
+5	Fixed Income	~15	Bond yields, duration, convexity, swap rates
+6	Indexes	~6	Index composition, dispersion data, ETF NAVs
+7	Volatility	~8	VIX futures, variance swaps, implied volatility surfaces
+8	Foreign Exchange	~6	Interest rate differentials, carry data
+9	Commodities	~6	Roll yields, hedging pressure, inventory data
+10	Futures	~7	Calendar spreads, cross-hedging data
+11+	Others	~18+	Convertibles, real estate, tax arbitrage, etc.
+
+What Hyperliquid Provides
+Only: OHLCV data (Open, High, Low, Close, Volume) for single assets
+No: Options chains, fundamentals, earnings, multi-asset correlations, yield curves, etc.
+
+What Was Implemented (59 strategies)
+The 59 implemented strategies are technical analysis strategies that can be calculated purely from OHLCV data:
+
+Category	Count	Examples
+Trend Following	8	SMA, EMA Cross, MACD, Parabolic SAR
+Mean Reversion	5	Bollinger, Stochastic, RSI
+Momentum	6	ROC, ADX, CMF
+Volatility	5	ATR, Keltner Channel
+Support/Resistance	5	Pivot Points, Fibonacci, Ichimoku
+Options-Adapted	20	Simplified versions with warnings
+Multi-Factor	10	Combined indicators
+
+The Gap
+The remaining ~92 strategies in the paper require:
+
+Options data (56 strategies) - strike prices, expirations, Greeks
+Fundamental data - earnings, P/E ratios, book values
+Multi-asset data - pairs trading, statistical arbitrage, sector rotation
+Fixed income data - yield curves, bond durations, swap rates
+External feeds - VIX, interest rates, economic indicators
+
+These are structurally impossible to implement with only single-asset OHLCV data from Hyperliquid.
