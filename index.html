@@ -1119,6 +1119,78 @@ function getStrategyById(id) {
 }
 
 // ============================================================
+// SECTION 9: STRATEGY IMPLEMENTATIONS
+// ============================================================
+
+// --- Helper Functions ---
+
+function calculateSMA(candles, period, priceKey = 'close') {
+    const result = [];
+    for (let i = 0; i < candles.length; i++) {
+        if (i < period - 1) {
+            result.push(null);
+        } else {
+            let sum = 0;
+            for (let j = 0; j < period; j++) {
+                sum += candles[i - j][priceKey];
+            }
+            result.push(sum / period);
+        }
+    }
+    return result;
+}
+
+// --- Strategy: Single Moving Average (Section 3.11) ---
+
+registerStrategy({
+    id: 'sma',
+    name: 'Single Moving Average',
+    category: StrategyCategories.TREND,
+    sourceSection: '3.11',
+    description: 'Buy when price crosses above SMA, sell when below.',
+
+    params: {
+        period: { default: 20, min: 2, max: 500, label: 'Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const sma = calculateSMA(candles, period);
+        const signals = [];
+
+        for (let i = 1; i < candles.length; i++) {
+            if (sma[i] === null || sma[i - 1] === null) continue;
+
+            const prevPrice = candles[i - 1].close;
+            const currPrice = candles[i].close;
+            const prevSMA = sma[i - 1];
+            const currSMA = sma[i];
+
+            // Price crossed above SMA
+            if (prevPrice <= prevSMA && currPrice > currSMA) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Price crossed above SMA(${period})`
+                });
+            }
+            // Price crossed below SMA
+            else if (prevPrice >= prevSMA && currPrice < currSMA) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Price crossed below SMA(${period})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// ============================================================
 // APP INITIALIZATION
 // ============================================================
 
