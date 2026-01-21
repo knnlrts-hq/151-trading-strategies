@@ -1225,6 +1225,54 @@ const AppState = {
 
         // Update chart markers
         this.updateChartMarkers();
+
+        // Update confluence
+        this.updateConfluence();
+    },
+
+    updateConfluence() {
+        const activeCount = Object.keys(this.activeStrategies).length;
+        const badge = document.getElementById('confluence-badge');
+
+        if (activeCount === 0) {
+            badge.innerHTML = '<span>No strategies</span>';
+            badge.className = 'confluence-badge';
+            return;
+        }
+
+        // Get latest candle time
+        if (this.candles.length === 0) return;
+        const latestTime = this.candles[this.candles.length - 1].time;
+
+        // Count signals at or near latest time (within last few candles)
+        let buyCount = 0;
+        let sellCount = 0;
+
+        for (const config of Object.values(this.activeStrategies)) {
+            // Get most recent signal
+            const recentSignals = config.signals.filter(s => s.time >= latestTime - 86400); // Last day
+            if (recentSignals.length > 0) {
+                const latest = recentSignals[recentSignals.length - 1];
+                if (latest.type === 'buy') buyCount++;
+                else sellCount++;
+            }
+        }
+
+        // Determine confluence
+        let text, className;
+        if (buyCount >= this.threshold) {
+            text = `🟢 ${buyCount}/${activeCount} Bullish`;
+            className = 'confluence-badge bullish';
+        } else if (sellCount >= this.threshold) {
+            text = `🔴 ${sellCount}/${activeCount} Bearish`;
+            className = 'confluence-badge bearish';
+        } else {
+            text = `${buyCount} buy / ${sellCount} sell`;
+            className = 'confluence-badge';
+        }
+
+        badge.innerHTML = `<span>${text}</span>`;
+        badge.className = className;
     },
 
     updateChartMarkers() {
