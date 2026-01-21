@@ -1190,6 +1190,238 @@ registerStrategy({
     }
 });
 
+// --- Helper: Calculate EMA ---
+
+function calculateEMA(candles, period, priceKey = 'close') {
+    const result = [];
+    const multiplier = 2 / (period + 1);
+
+    for (let i = 0; i < candles.length; i++) {
+        if (i === 0) {
+            result.push(candles[i][priceKey]);
+        } else if (i < period - 1) {
+            // Use SMA for initial values
+            let sum = 0;
+            for (let j = 0; j <= i; j++) {
+                sum += candles[j][priceKey];
+            }
+            result.push(sum / (i + 1));
+        } else {
+            const ema = (candles[i][priceKey] - result[i - 1]) * multiplier + result[i - 1];
+            result.push(ema);
+        }
+    }
+    return result;
+}
+
+// --- Helper: Calculate RSI ---
+
+function calculateRSI(candles, period = 14) {
+    const result = [];
+    const gains = [];
+    const losses = [];
+
+    for (let i = 0; i < candles.length; i++) {
+        if (i === 0) {
+            result.push(null);
+            continue;
+        }
+
+        const change = candles[i].close - candles[i - 1].close;
+        gains.push(change > 0 ? change : 0);
+        losses.push(change < 0 ? -change : 0);
+
+        if (i < period) {
+            result.push(null);
+        } else {
+            const avgGain = gains.slice(-period).reduce((a, b) => a + b, 0) / period;
+            const avgLoss = losses.slice(-period).reduce((a, b) => a + b, 0) / period;
+
+            if (avgLoss === 0) {
+                result.push(100);
+            } else {
+                const rs = avgGain / avgLoss;
+                result.push(100 - (100 / (1 + rs)));
+            }
+        }
+    }
+    return result;
+}
+
+// --- Strategy: RSI ---
+
+registerStrategy({
+    id: 'rsi',
+    name: 'Relative Strength Index',
+    category: StrategyCategories.REVERSION,
+    sourceSection: '3.9',
+    description: 'Buy when RSI crosses above oversold, sell when crosses below overbought.',
+
+    params: {
+        period: { default: 14, min: 2, max: 100, label: 'Period' },
+        overbought: { default: 70, min: 50, max: 100, label: 'Overbought' },
+        oversold: { default: 30, min: 0, max: 50, label: 'Oversold' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const overbought = params.overbought || this.params.overbought.default;
+        const oversold = params.oversold || this.params.oversold.default;
+
+        const rsi = calculateRSI(candles, period);
+        const signals = [];
+
+        for (let i = 1; i < candles.length; i++) {
+            if (rsi[i] === null || rsi[i - 1] === null) continue;
+
+            // RSI crossed above oversold
+            if (rsi[i - 1] <= oversold && rsi[i] > oversold) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `RSI crossed above ${oversold} (oversold)`
+                });
+            }
+            // RSI crossed below overbought
+            else if (rsi[i - 1] >= overbought && rsi[i] < overbought) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `RSI crossed below ${overbought} (overbought)`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Two Moving Averages (Section 3.12) ---
+
+registerStrategy({
+    id: 'sma-cross',
+    name: 'Two Moving Averages',
+    category: StrategyCategories.TREND,
+    sourceSection: '3.12',
+    description: 'Buy when fast MA crosses above slow MA, sell when below.',
+
+    params: {
+        fastPeriod: { default: 10, min: 2, max: 200, label: 'Fast Period' },
+        slowPeriod: { default: 30, min: 5, max: 500, label: 'Slow Period' }
+    },
+
+    calculate(candles, params) {
+        const fastPeriod = params.fastPeriod || this.params.fastPeriod.default;
+        const slowPeriod = params.slowPeriod || this.params.slowPeriod.default;
+
+        const fastMA = calculateSMA(candles, fastPeriod);
+        const slowMA = calculateSMA(candles, slowPeriod);
+        const signals = [];
+
+        for (let i = 1; i < candles.length; i++) {
+            if (fastMA[i] === null || slowMA[i] === null ||
+                fastMA[i - 1] === null || slowMA[i - 1] === null) continue;
+
+            // Fast crossed above slow (Golden Cross)
+            if (fastMA[i - 1] <= slowMA[i - 1] && fastMA[i] > slowMA[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `SMA(${fastPeriod}) crossed above SMA(${slowPeriod})`
+                });
+            }
+            // Fast crossed below slow (Death Cross)
+            else if (fastMA[i - 1] >= slowMA[i - 1] && fastMA[i] < slowMA[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `SMA(${fastPeriod}) crossed below SMA(${slowPeriod})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: MACD ---
+
+registerStrategy({
+    id: 'macd',
+    name: 'MACD',
+    category: StrategyCategories.MOMENTUM,
+    sourceSection: '3.12',
+    description: 'Buy on MACD line crossing above signal line, sell on crossing below.',
+
+    params: {
+        fastPeriod: { default: 12, min: 2, max: 100, label: 'Fast EMA' },
+        slowPeriod: { default: 26, min: 5, max: 200, label: 'Slow EMA' },
+        signalPeriod: { default: 9, min: 2, max: 50, label: 'Signal Period' }
+    },
+
+    calculate(candles, params) {
+        const fastPeriod = params.fastPeriod || this.params.fastPeriod.default;
+        const slowPeriod = params.slowPeriod || this.params.slowPeriod.default;
+        const signalPeriod = params.signalPeriod || this.params.signalPeriod.default;
+
+        const fastEMA = calculateEMA(candles, fastPeriod);
+        const slowEMA = calculateEMA(candles, slowPeriod);
+
+        // MACD line = Fast EMA - Slow EMA
+        const macdLine = fastEMA.map((fast, i) =>
+            (fast !== null && slowEMA[i] !== null) ? fast - slowEMA[i] : null
+        );
+
+        // Signal line = EMA of MACD line
+        const signalLine = [];
+        const multiplier = 2 / (signalPeriod + 1);
+        for (let i = 0; i < macdLine.length; i++) {
+            if (macdLine[i] === null) {
+                signalLine.push(null);
+            } else if (signalLine.length === 0 || signalLine[signalLine.length - 1] === null) {
+                signalLine.push(macdLine[i]);
+            } else {
+                const signal = (macdLine[i] - signalLine[i - 1]) * multiplier + signalLine[i - 1];
+                signalLine.push(signal);
+            }
+        }
+
+        const signals = [];
+
+        for (let i = slowPeriod + signalPeriod; i < candles.length; i++) {
+            if (macdLine[i] === null || signalLine[i] === null ||
+                macdLine[i - 1] === null || signalLine[i - 1] === null) continue;
+
+            // MACD crossed above signal
+            if (macdLine[i - 1] <= signalLine[i - 1] && macdLine[i] > signalLine[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: 'MACD crossed above signal line'
+                });
+            }
+            // MACD crossed below signal
+            else if (macdLine[i - 1] >= signalLine[i - 1] && macdLine[i] < signalLine[i]) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: 'MACD crossed below signal line'
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+console.log('Registered strategies:', StrategyRegistry.map(s => s.name));
+
 // ============================================================
 // APP INITIALIZATION
 // ============================================================
