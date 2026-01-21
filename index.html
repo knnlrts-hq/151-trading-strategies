@@ -1108,6 +1108,44 @@ const UIController = {
         document.getElementById('export-csv-btn').onclick = () => this.exportCSV();
     },
 
+    // URL State Management
+    saveStateToURL() {
+        const state = {
+            s: AppState.symbol,
+            t: AppState.timeframe,
+            th: AppState.threshold
+        };
+
+        // Add active strategies
+        const strategies = Object.entries(AppState.activeStrategies).map(([slot, config]) => {
+            return `${slot}:${config.id}`;
+        });
+        if (strategies.length > 0) {
+            state.str = strategies.join(',');
+        }
+
+        const hash = Object.entries(state)
+            .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+            .join('&');
+
+        window.history.replaceState(null, '', '#' + hash);
+    },
+
+    loadStateFromURL() {
+        const hash = window.location.hash.slice(1);
+        if (!hash) return null;
+
+        const state = {};
+        hash.split('&').forEach(pair => {
+            const [key, value] = pair.split('=');
+            if (key && value) {
+                state[key] = decodeURIComponent(value);
+            }
+        });
+
+        return state;
+    },
+
     exportCSV() {
         const rows = [['Time', 'Strategy', 'Type', 'Price', 'Reason']];
 
@@ -1378,6 +1416,9 @@ const AppState = {
 
         // Recalculate strategy signals with new data
         this.recalculateSignals();
+
+        // Save state to URL
+        UIController.saveStateToURL();
     }
 };
 
@@ -1763,6 +1804,18 @@ async function initApp() {
     UIController.initSettingsPanel();
     UIController.initExportButton();
     await UIController.initSymbolSelect();
+
+    // Load state from URL if present
+    const urlState = UIController.loadStateFromURL();
+    if (urlState) {
+        if (urlState.s) AppState.symbol = urlState.s;
+        if (urlState.t) AppState.timeframe = urlState.t;
+        if (urlState.th) AppState.threshold = parseInt(urlState.th);
+
+        // Update UI to reflect loaded state
+        document.getElementById('threshold-slider').value = AppState.threshold;
+        document.getElementById('threshold-value').textContent = AppState.threshold;
+    }
 
     await AppState.reload();
 }
