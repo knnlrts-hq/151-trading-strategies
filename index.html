@@ -3443,6 +3443,414 @@ registerStrategy({
     }
 });
 
+// ============================================================
+// SECTION 9.5: SUPPORT/RESISTANCE STRATEGIES
+// ============================================================
+
+// --- Strategy: Pivot Points (Section 3.14) ---
+
+registerStrategy({
+    id: 'pivot',
+    name: 'Pivot Points',
+    category: StrategyCategories.SUPPORT,
+    sourceSection: '3.14',
+    description: 'Buy when price crosses above pivot point, sell when below.',
+
+    params: {},
+
+    calculate(candles, params) {
+        const signals = [];
+
+        for (let i = 1; i < candles.length; i++) {
+            // Calculate pivot from previous candle
+            const prevCandle = candles[i - 1];
+            const pivot = (prevCandle.high + prevCandle.low + prevCandle.close) / 3;
+            // R1 = 2 * Pivot - Low
+            // S1 = 2 * Pivot - High
+
+            const currClose = candles[i].close;
+            const prevClose = prevCandle.close;
+
+            // Price crossed above pivot (buy signal)
+            if (prevClose <= pivot && currClose > pivot) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Price crossed above pivot (${pivot.toFixed(2)})`
+                });
+            }
+            // Price crossed below pivot (sell signal)
+            else if (prevClose >= pivot && currClose < pivot) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Price crossed below pivot (${pivot.toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Fibonacci Retracement ---
+
+registerStrategy({
+    id: 'fibonacci',
+    name: 'Fibonacci Retracement',
+    category: StrategyCategories.SUPPORT,
+    sourceSection: '3.14',
+    description: 'Buy at 61.8% retracement in uptrend, sell at 38.2% in downtrend.',
+
+    params: {
+        lookback: { default: 50, min: 10, max: 200, label: 'Lookback' }
+    },
+
+    calculate(candles, params) {
+        const lookback = params.lookback || this.params.lookback.default;
+        const signals = [];
+
+        for (let i = lookback; i < candles.length; i++) {
+            // Find swing high and swing low within lookback period
+            let swingHigh = -Infinity;
+            let swingLow = Infinity;
+            let swingHighIdx = i - lookback;
+            let swingLowIdx = i - lookback;
+
+            for (let j = i - lookback; j < i; j++) {
+                if (candles[j].high > swingHigh) {
+                    swingHigh = candles[j].high;
+                    swingHighIdx = j;
+                }
+                if (candles[j].low < swingLow) {
+                    swingLow = candles[j].low;
+                    swingLowIdx = j;
+                }
+            }
+
+            const range = swingHigh - swingLow;
+            if (range === 0) continue;
+
+            // Determine trend direction based on which came first
+            const isUptrend = swingLowIdx < swingHighIdx;
+
+            // Calculate Fibonacci levels
+            // In uptrend: 61.8% retracement from high
+            // In downtrend: 38.2% retracement from low
+            const fib618 = swingHigh - (range * 0.618); // 61.8% retracement level
+            const fib382 = swingLow + (range * 0.382);  // 38.2% retracement level
+
+            const currClose = candles[i].close;
+            const prevClose = candles[i - 1].close;
+            const tolerance = range * 0.01; // 1% tolerance
+
+            if (isUptrend) {
+                // Buy signal: price touches 61.8% retracement level from below
+                if (prevClose < fib618 - tolerance && currClose >= fib618 - tolerance && currClose <= fib618 + tolerance) {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'buy',
+                        strength: 1,
+                        reason: `Price at 61.8% Fib retracement (${fib618.toFixed(2)}) in uptrend`
+                    });
+                }
+            } else {
+                // Sell signal: price touches 38.2% retracement level from above
+                if (prevClose > fib382 + tolerance && currClose <= fib382 + tolerance && currClose >= fib382 - tolerance) {
+                    signals.push({
+                        time: candles[i].time,
+                        type: 'sell',
+                        strength: 1,
+                        reason: `Price at 38.2% Fib retracement (${fib382.toFixed(2)}) in downtrend`
+                    });
+                }
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Donchian Breakout ---
+
+registerStrategy({
+    id: 'donchian-breakout',
+    name: 'Donchian Breakout',
+    category: StrategyCategories.SUPPORT,
+    sourceSection: '3.15',
+    description: 'Buy when price breaks above upper Donchian band, sell when below lower band.',
+
+    params: {
+        period: { default: 20, min: 5, max: 100, label: 'Period' }
+    },
+
+    calculate(candles, params) {
+        const period = params.period || this.params.period.default;
+        const signals = [];
+
+        for (let i = period; i < candles.length; i++) {
+            // Calculate Donchian Channel from previous period (excluding current candle)
+            let upperBand = -Infinity;
+            let lowerBand = Infinity;
+
+            for (let j = i - period; j < i; j++) {
+                upperBand = Math.max(upperBand, candles[j].high);
+                lowerBand = Math.min(lowerBand, candles[j].low);
+            }
+
+            const currentClose = candles[i].close;
+            const prevClose = candles[i - 1].close;
+
+            // Price breaks above upper band (bullish breakout - buy signal)
+            if (prevClose <= upperBand && currentClose > upperBand) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Price broke above Donchian upper band (${upperBand.toFixed(2)})`
+                });
+            }
+            // Price breaks below lower band (bearish breakout - sell signal)
+            else if (prevClose >= lowerBand && currentClose < lowerBand) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Price broke below Donchian lower band (${lowerBand.toFixed(2)})`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Support/Resistance Levels ---
+
+registerStrategy({
+    id: 'sr-levels',
+    name: 'Support/Resistance Levels',
+    category: StrategyCategories.SUPPORT,
+    sourceSection: '3.14',
+    description: 'Buy when price bounces off support, sell at resistance.',
+
+    params: {
+        lookback: { default: 50, min: 10, max: 200, label: 'Lookback' },
+        tolerance: { default: 0.02, min: 0.005, max: 0.05, step: 0.005, label: 'Tolerance (%)' }
+    },
+
+    calculate(candles, params) {
+        const lookback = params.lookback || this.params.lookback.default;
+        const tolerance = params.tolerance || this.params.tolerance.default;
+        const signals = [];
+
+        // Find significant price levels (local minima/maxima)
+        function findPriceLevels(candles, startIdx, endIdx, tol) {
+            const levels = { support: [], resistance: [] };
+            const pricePoints = [];
+
+            // Collect all significant price points
+            for (let i = startIdx; i < endIdx; i++) {
+                pricePoints.push({ price: candles[i].low, type: 'low' });
+                pricePoints.push({ price: candles[i].high, type: 'high' });
+            }
+
+            // Sort by price
+            pricePoints.sort((a, b) => a.price - b.price);
+
+            // Group nearby prices into levels
+            const groupedLevels = [];
+            let currentGroup = [pricePoints[0]];
+
+            for (let i = 1; i < pricePoints.length; i++) {
+                const avgPrice = currentGroup.reduce((sum, p) => sum + p.price, 0) / currentGroup.length;
+                if (Math.abs(pricePoints[i].price - avgPrice) / avgPrice <= tol) {
+                    currentGroup.push(pricePoints[i]);
+                } else {
+                    if (currentGroup.length >= 2) {
+                        groupedLevels.push({
+                            price: currentGroup.reduce((sum, p) => sum + p.price, 0) / currentGroup.length,
+                            touches: currentGroup.length,
+                            isSupport: currentGroup.filter(p => p.type === 'low').length > currentGroup.length / 2
+                        });
+                    }
+                    currentGroup = [pricePoints[i]];
+                }
+            }
+
+            // Don't forget last group
+            if (currentGroup.length >= 2) {
+                groupedLevels.push({
+                    price: currentGroup.reduce((sum, p) => sum + p.price, 0) / currentGroup.length,
+                    touches: currentGroup.length,
+                    isSupport: currentGroup.filter(p => p.type === 'low').length > currentGroup.length / 2
+                });
+            }
+
+            return groupedLevels;
+        }
+
+        for (let i = lookback; i < candles.length; i++) {
+            const levels = findPriceLevels(candles, i - lookback, i, tolerance);
+            const currentClose = candles[i].close;
+            const currentLow = candles[i].low;
+            const currentHigh = candles[i].high;
+            const prevClose = candles[i - 1].close;
+
+            for (const level of levels) {
+                const levelTolerance = level.price * tolerance;
+
+                if (level.isSupport) {
+                    // Check for bounce off support (price touched support and bounced up)
+                    if (currentLow <= level.price + levelTolerance &&
+                        currentClose > level.price &&
+                        prevClose > level.price) {
+                        signals.push({
+                            time: candles[i].time,
+                            type: 'buy',
+                            strength: 1,
+                            reason: `Price bounced off support level (${level.price.toFixed(2)}, ${level.touches} touches)`
+                        });
+                        break; // Only one signal per candle
+                    }
+                } else {
+                    // Check for rejection at resistance (price touched resistance and rejected)
+                    if (currentHigh >= level.price - levelTolerance &&
+                        currentClose < level.price &&
+                        prevClose < level.price) {
+                        signals.push({
+                            time: candles[i].time,
+                            type: 'sell',
+                            strength: 1,
+                            reason: `Price rejected at resistance level (${level.price.toFixed(2)}, ${level.touches} touches)`
+                        });
+                        break; // Only one signal per candle
+                    }
+                }
+            }
+        }
+
+        return signals;
+    }
+});
+
+// --- Strategy: Ichimoku Cloud ---
+
+registerStrategy({
+    id: 'ichimoku',
+    name: 'Ichimoku Cloud',
+    category: StrategyCategories.SUPPORT,
+    sourceSection: '3.14',
+    description: 'Buy when price above cloud and Tenkan crosses Kijun, sell opposite.',
+
+    params: {
+        tenkanPeriod: { default: 9, min: 5, max: 20, label: 'Tenkan Period' },
+        kijunPeriod: { default: 26, min: 10, max: 60, label: 'Kijun Period' },
+        senkouBPeriod: { default: 52, min: 20, max: 120, label: 'Senkou B Period' }
+    },
+
+    calculate(candles, params) {
+        const tenkanPeriod = params.tenkanPeriod || this.params.tenkanPeriod.default;
+        const kijunPeriod = params.kijunPeriod || this.params.kijunPeriod.default;
+        const senkouBPeriod = params.senkouBPeriod || this.params.senkouBPeriod.default;
+        const signals = [];
+
+        // Helper to calculate midpoint of high/low over period
+        function calcMidpoint(candles, period, endIdx) {
+            let highest = -Infinity;
+            let lowest = Infinity;
+            for (let j = Math.max(0, endIdx - period + 1); j <= endIdx; j++) {
+                highest = Math.max(highest, candles[j].high);
+                lowest = Math.min(lowest, candles[j].low);
+            }
+            return (highest + lowest) / 2;
+        }
+
+        // Calculate Ichimoku components
+        const tenkan = []; // Conversion Line: (9-period high + 9-period low) / 2
+        const kijun = [];  // Base Line: (26-period high + 26-period low) / 2
+        const senkouA = []; // Leading Span A: (Tenkan + Kijun) / 2 (shifted 26 periods ahead)
+        const senkouB = []; // Leading Span B: (52-period high + 52-period low) / 2 (shifted 26 periods ahead)
+
+        for (let i = 0; i < candles.length; i++) {
+            // Tenkan-sen (Conversion Line)
+            if (i >= tenkanPeriod - 1) {
+                tenkan.push(calcMidpoint(candles, tenkanPeriod, i));
+            } else {
+                tenkan.push(null);
+            }
+
+            // Kijun-sen (Base Line)
+            if (i >= kijunPeriod - 1) {
+                kijun.push(calcMidpoint(candles, kijunPeriod, i));
+            } else {
+                kijun.push(null);
+            }
+
+            // Senkou Span B (shifted, but we'll use it for current cloud)
+            if (i >= senkouBPeriod - 1) {
+                senkouB.push(calcMidpoint(candles, senkouBPeriod, i));
+            } else {
+                senkouB.push(null);
+            }
+        }
+
+        // Senkou Span A: (Tenkan + Kijun) / 2
+        for (let i = 0; i < candles.length; i++) {
+            if (tenkan[i] !== null && kijun[i] !== null) {
+                senkouA.push((tenkan[i] + kijun[i]) / 2);
+            } else {
+                senkouA.push(null);
+            }
+        }
+
+        // Generate signals
+        const minPeriod = Math.max(tenkanPeriod, kijunPeriod, senkouBPeriod);
+
+        for (let i = minPeriod; i < candles.length; i++) {
+            if (tenkan[i] === null || tenkan[i - 1] === null ||
+                kijun[i] === null || kijun[i - 1] === null ||
+                senkouA[i] === null || senkouB[i] === null) continue;
+
+            const currClose = candles[i].close;
+            const cloudTop = Math.max(senkouA[i], senkouB[i]);
+            const cloudBottom = Math.min(senkouA[i], senkouB[i]);
+
+            // Price is above cloud
+            const aboveCloud = currClose > cloudTop;
+            // Price is below cloud
+            const belowCloud = currClose < cloudBottom;
+
+            // Tenkan-Kijun crossover
+            const bullishCross = tenkan[i - 1] <= kijun[i - 1] && tenkan[i] > kijun[i];
+            const bearishCross = tenkan[i - 1] >= kijun[i - 1] && tenkan[i] < kijun[i];
+
+            // Buy: Tenkan crosses above Kijun AND price is above cloud
+            if (bullishCross && aboveCloud) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'buy',
+                    strength: 1,
+                    reason: `Bullish Ichimoku: Tenkan crossed above Kijun above cloud`
+                });
+            }
+            // Sell: Tenkan crosses below Kijun AND price is below cloud
+            else if (bearishCross && belowCloud) {
+                signals.push({
+                    time: candles[i].time,
+                    type: 'sell',
+                    strength: 1,
+                    reason: `Bearish Ichimoku: Tenkan crossed below Kijun below cloud`
+                });
+            }
+        }
+
+        return signals;
+    }
+});
+
 console.log('Registered strategies:', StrategyRegistry.map(s => s.name));
 
 // ============================================================
