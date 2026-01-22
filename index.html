@@ -70,6 +70,14 @@
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border-color);
             position: relative;
+        }
+
+        /* Row1 (asset/timeframe) must be above row2 so its dropdown isn't overlapped */
+        #row1 {
+            z-index: 110;
+        }
+
+        #row2 {
             z-index: 100;
         }
 
@@ -145,6 +153,22 @@
 
         .settings-btn:hover {
             background: var(--bg-primary);
+        }
+
+        .remove-btn {
+            padding: 6px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--accent-red);
+            cursor: pointer;
+            font-size: 14px;
+            display: none;
+        }
+
+        .remove-btn:hover {
+            background: var(--accent-red);
+            color: var(--text-primary);
         }
 
         /* ========== Confluence Controls ========== */
@@ -340,6 +364,7 @@
 
         .signal-entry:hover {
             background: var(--bg-tertiary);
+            cursor: pointer;
         }
 
         .signal-time {
@@ -389,8 +414,26 @@
             width: auto !important;
         }
 
+        .choices__list--dropdown .choices__item {
+            color: var(--text-primary);
+        }
+
         .choices__list--dropdown .choices__item--selectable.is-highlighted {
             background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .choices__list--dropdown .choices__group .choices__heading {
+            color: var(--accent-blue);
+            font-weight: 600;
+        }
+
+        .choices__placeholder {
+            color: var(--text-secondary);
+        }
+
+        .choices__list--single .choices__item {
+            color: var(--text-primary);
         }
 
         .choices__input {
@@ -439,6 +482,7 @@
                     <option value="">+ Add Strategy</option>
                 </select>
                 <button class="settings-btn" data-slot="1" style="display:none;">⚙</button>
+                <button class="remove-btn" data-slot="1" title="Remove strategy">×</button>
             </div>
             <!-- More slots added dynamically -->
         </div>
@@ -850,6 +894,30 @@ const ChartManager = {
         if (this.candleSeries) {
             this.candleSeries.setMarkers(markers);
         }
+    },
+
+    /**
+     * Scroll chart to center on a specific time
+     * @param {number} time - Unix timestamp
+     */
+    scrollToTime(time) {
+        if (this.chart) {
+            const timeScale = this.chart.timeScale();
+            const visibleRange = timeScale.getVisibleLogicalRange();
+            if (visibleRange) {
+                const barsCount = visibleRange.to - visibleRange.from;
+                const halfBars = Math.floor(barsCount / 2);
+                // Find the bar index for this time by searching candles
+                const candles = AppState.candles;
+                const barIndex = candles.findIndex(c => c.time === time);
+                if (barIndex !== -1) {
+                    timeScale.setVisibleLogicalRange({
+                        from: barIndex - halfBars,
+                        to: barIndex + halfBars
+                    });
+                }
+            }
+        }
     }
 };
 
@@ -971,6 +1039,11 @@ const UIController = {
             <span class="signal-price">$${signal.price.toLocaleString()}</span>
         `;
 
+        // Click handler to navigate chart to this signal's time
+        entry.addEventListener('click', () => {
+            ChartManager.scrollToTime(signal.time);
+        });
+
         content.insertBefore(entry, content.firstChild);
 
         // Update count
@@ -992,12 +1065,10 @@ const UIController = {
     },
 
     strategyChoices: {},
+    nextSlotId: 2, // Track next available slot ID
 
-    initStrategySelectors() {
+    getStrategyChoicesConfig() {
         const grouped = getStrategiesByCategory();
-        const slot = document.querySelector('.strategy-select[data-slot="1"]');
-
-        // Build choices format
         const choices = [{ value: '', label: '+ Add Strategy', selected: true }];
 
         for (const [category, strategies] of Object.entries(grouped)) {
@@ -1012,6 +1083,13 @@ const UIController = {
                 }))
             });
         }
+
+        return choices;
+    },
+
+    initStrategySelectors() {
+        const slot = document.querySelector('.strategy-select[data-slot="1"]');
+        const choices = this.getStrategyChoicesConfig();
 
         // Initialize first slot with Choices.js
         this.strategyChoices[1] = new Choices(slot, {
@@ -1028,6 +1106,84 @@ const UIController = {
                 this.onStrategySelected(1, strategyId);
             }
         });
+
+        // Add remove button listener for slot 1
+        const removeBtn = document.querySelector('.remove-btn[data-slot="1"]');
+        removeBtn.addEventListener('click', () => {
+            this.removeStrategySlot(1);
+        });
+    },
+
+    addStrategySlot() {
+        const activeCount = Object.keys(AppState.activeStrategies).length;
+        const existingSlots = document.querySelectorAll('.strategy-slot').length;
+
+        // Don't add if we already have maxStrategies slots or an empty slot exists
+        if (existingSlots >= CONFIG.maxStrategies) return;
+
+        const slotId = this.nextSlotId++;
+        const container = document.getElementById('strategy-slots');
+
+        // Create new slot
+        const slotDiv = document.createElement('div');
+        slotDiv.className = 'strategy-slot';
+        slotDiv.id = `strategy-slot-${slotId}`;
+        slotDiv.innerHTML = `
+            <select class="strategy-select" data-slot="${slotId}">
+                <option value="">+ Add Strategy</option>
+            </select>
+            <button class="settings-btn" data-slot="${slotId}" style="display:none;">⚙</button>
+            <button class="remove-btn" data-slot="${slotId}" title="Remove strategy">×</button>
+        `;
+
+        container.appendChild(slotDiv);
+
+        // Initialize Choices.js for new slot
+        const selectEl = slotDiv.querySelector('.strategy-select');
+        const choices = this.getStrategyChoicesConfig();
+
+        this.strategyChoices[slotId] = new Choices(selectEl, {
+            searchEnabled: true,
+            searchPlaceholderValue: 'Search strategies...',
+            itemSelectText: '',
+            choices: choices,
+            shouldSort: false,
+        });
+
+        // Add change listener
+        selectEl.addEventListener('change', (e) => {
+            const strategyId = e.target.value;
+            if (strategyId) {
+                this.onStrategySelected(slotId, strategyId);
+            }
+        });
+
+        // Add remove button listener
+        const removeBtn = slotDiv.querySelector('.remove-btn');
+        removeBtn.addEventListener('click', () => {
+            this.removeStrategySlot(slotId);
+        });
+    },
+
+    removeStrategySlot(slotId) {
+        // Don't remove last slot
+        const slots = document.querySelectorAll('.strategy-slot');
+        if (slots.length <= 1) return;
+
+        // Destroy Choices instance
+        if (this.strategyChoices[slotId]) {
+            this.strategyChoices[slotId].destroy();
+            delete this.strategyChoices[slotId];
+        }
+
+        // Remove from AppState
+        AppState.removeStrategy(slotId);
+
+        // Remove DOM element
+        const slotDiv = document.getElementById(`strategy-slot-${slotId}`);
+        if (slotDiv) {
+            slotDiv.remove();
+        }
     },
 
     onStrategySelected(slot, strategyId) {
@@ -1048,8 +1204,20 @@ const UIController = {
             settingsBtn.onclick = () => this.openSettingsPanel(slot);
         }
 
+        // Show remove button
+        const removeBtn = document.querySelector(`.remove-btn[data-slot="${slot}"]`);
+        if (removeBtn) {
+            removeBtn.style.display = 'inline-block';
+        }
+
         // Add to AppState
         AppState.addStrategy(slot, strategyId, {});
+
+        // Add a new slot for the next strategy (if under limit)
+        const activeCount = Object.keys(AppState.activeStrategies).length;
+        if (activeCount < CONFIG.maxStrategies) {
+            this.addStrategySlot();
+        }
     },
 
     currentSettingsSlot: null,
